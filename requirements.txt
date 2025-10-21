@@ -1,0 +1,1 @@
+pandas\nnumpy\nstreamlit\nlangchain\nopenai\nnfaiss-cpu\nprophet
