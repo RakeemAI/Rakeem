@@ -22,7 +22,16 @@ from engine.export import to_json
 st.set_page_config(page_title="Rakeem", layout="wide")
 
 st.title("ركيم — Rakeem (SME Financial Assistant) 🇸🇦")
-st.markdown("ارفع ملف المالي الخاص بك لتحصل على المؤشرات الرئيسة للأداء وحساب الضريبة المضافة والزكاة مع رسوم بيانة بسيطة")
+st.markdown(
+    """
+    📂 *.ارفع ملفك المالي لعرض مؤشرات الأداء والضرائب والرسوم البيانية الخاصة بشركتك*
+
+    📂 *Upload your financial file to view key performance metrics, taxes, and visual charts for your company.*
+
+    ---
+    💡 Note: We only accepts files in Excel (.xlsx) or CSV (.csv) format only.
+    """
+)
 
 # ---------- Sidebar: file upload only (no simulate) ----------
 st.sidebar.header("Upload")
@@ -31,7 +40,8 @@ uploaded_file = st.sidebar.file_uploader(
 )
 
 if uploaded_file is None:
-    st.info("للبدء ارفع ملفك من الشريط الجانبي من فضلك. ")
+    st.info(".للبدء من فضلك ارفع الملف من الشريط الجانبي")
+    st.info("To start please upload your file from sidebar.")
     st.stop()
 
 # ---------- Read the file using engine loaders ----------
