@@ -10,5 +10,5 @@ langchain>=0.2
 openai>=1.40
 faiss-cpu>=1.8
 prophet>=1.1
-streamlit>=1.37
+pyngrok
 plotly>=5.22
