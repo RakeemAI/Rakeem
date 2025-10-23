@@ -160,3 +160,72 @@ right.download_button(
 
 st.markdown("---")
 st.caption("Prototype — powered by Rakeem Financial Engine.")
+
+
+# ===================== Chat Interface (Sprint 5: Person 3 & 4) =====================
+from typing import Optional
+import streamlit as st
+
+# جرّب السلسلة من سبرنت 4 أولاً
+_backend = None
+try:
+    from llm.run import chat_answer as _chain_chat_answer  # ترجع (reply_text, sources)
+    _backend = ("chain", _chain_chat_answer)
+except Exception:
+    try:
+        from llm.simple_backend import answer as _simple_answer
+        _backend = ("simple", _simple_answer)
+    except Exception as _e:
+        _backend = None
+        st.warning("⚠️ لا يوجد باك-إند متاح للشات (لا chain ولا simple).", icon="⚠️")
+
+st.markdown("---")
+st.header("💬 المحادثة الذكية")
+
+def _resolve_financial_df() -> Optional["object"]:
+    # التقط DF من أكثر الأماكن شيوعًا
+    try:
+        if "df" in globals() and "DataFrame" in str(type(globals()["df"])): return globals()["df"]
+        if "financial_df" in globals() and "DataFrame" in str(type(globals()["financial_df"])): return globals()["financial_df"]
+        for key in ("df", "financial_df", "computed_df", "results_df"):
+            if key in st.session_state and "DataFrame" in str(type(st.session_state[key])):
+                return st.session_state[key]
+    except Exception:
+        pass
+    return None
+
+if "chat_messages" not in st.session_state:
+    st.session_state.chat_messages = [
+        {"role": "assistant", "content": "مرحبًا! ارفعي ملفك المالي ثم اسألي عن الربحية، الزكاة، الضريبة، أو أي استفسار."}
+    ]
+
+# عرض سجل المحادثة
+for m in st.session_state.chat_messages:
+    with st.chat_message(m["role"]):
+        st.markdown(m["content"])
+
+user_q = st.chat_input("اكتبي سؤالك هنا…")
+if user_q:
+    st.session_state.chat_messages.append({"role": "user", "content": user_q})
+    with st.chat_message("user"):
+        st.markdown(user_q)
+
+    df_ctx = _resolve_financial_df()
+    try:
+        if not _backend:
+            raise RuntimeError("لا يوجد باك-إند للشات. تأكدي من llm.run.chat_answer أو llm/simple_backend.py.")
+        mode, fn = _backend
+        reply_text, sources = fn(user_q, df=df_ctx) if mode == "simple" else fn(user_q, df=df_ctx)
+
+        st.session_state.chat_messages.append({"role": "assistant", "content": reply_text})
+        with st.chat_message("assistant"):
+            st.markdown(reply_text)
+            if sources:
+                with st.expander("المصادر"):
+                    for s in sources:
+                        st.markdown(f"- {s}")
+
+    except Exception as e:
+        st.error(f"تعذّر توليد الرد: {e}")
+        st.info("تحققي من تشغيل المحرك المالي ووجود ملف data/zatca_docs.jsonl عند استخدام الوضع البسيط.", icon="ℹ️")
+# ===============================================================================
