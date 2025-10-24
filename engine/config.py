@@ -4,14 +4,14 @@ from typing import Tuple
 
 @dataclass(frozen=True)
 class ColumnMap:
-    date: Tuple[str, ...] = ("date", "month", "period")
-    revenue: Tuple[str, ...] = ("revenue", "sales", "turnover")
-    expenses: Tuple[str, ...] = ("expenses", "costs", "opex", "total_expenses")
-    vat_collected: Tuple[str, ...] = ("vat_collected", "output_vat", "vat_out")
-    vat_paid: Tuple[str, ...] = ("vat_paid", "input_vat", "vat_in")
-    opening_cash: Tuple[str, ...] = ("opening_cash", "cash_opening", "begin_cash")
-    closing_cash: Tuple[str, ...] = ("closing_cash", "cash_closing", "end_cash")
-    zakat_base: Tuple[str, ...] = ("zakat_base", "zakatable_base")
+    date: Tuple[str, ...] = ("date", "month", "period", "تاريخ", "الشهر")
+    revenue: Tuple[str, ...] = ("revenue", "sales", "turnover", "الإيرادات", "المبيعات")
+    expenses: Tuple[str, ...] = ("expenses", "costs", "opex", "total_expenses", "المصروفات", "التكاليف")
+    vat_collected: Tuple[str, ...] = ("vat_collected", "output_vat", "vat_out", "ضريبة_محصلة", "ضريبة_المخرجات")
+    vat_paid: Tuple[str, ...] = ("vat_paid", "input_vat", "vat_in", "ضريبة_مدفوعة", "ضريبة_المدخلات")
+    opening_cash: Tuple[str, ...] = ("opening_cash", "cash_opening", "begin_cash", "الرصيد_الافتتاحي")
+    closing_cash: Tuple[str, ...] = ("closing_cash", "cash_closing", "end_cash", "الرصيد_الختامي")
+    zakat_base: Tuple[str, ...] = ("zakat_base", "zakatable_base", "الوعاء_الزكوي")
 
 DEFAULT_COL_MAP = ColumnMap()
 
