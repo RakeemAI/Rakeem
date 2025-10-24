@@ -1,25 +1,54 @@
+# engine/compute_core.py
+from engine.config import DEFAULT_ENGINE_CONFIG as CFG
 import pandas as pd
+import numpy as np
 
-def _get(df: pd.DataFrame, name: str, *aliases, default=0.0) -> pd.Series:
+def _pick_series(df: pd.DataFrame, name: str, aliases) -> pd.Series:
+    """
+    Return the first matching column among [name] + aliases; otherwise a NaN series.
+    """
     for c in (name, *aliases):
         if c in df.columns:
             return df[c]
-    return pd.Series([default] * len(df), index=df.index, dtype="float64")
+    # no match -> NaN series (will be handled downstream)
+    return pd.Series(np.nan, index=df.index)
 
 def compute_core(df: pd.DataFrame) -> pd.DataFrame:
     out = df.copy()
-    rev = _get(out, "revenue")
-    exp = _get(out, "expenses")
+    colmap = CFG.colmap
 
-    out["profit"] = (rev.fillna(0) - exp.fillna(0)).astype(float)
+    # read with aliases (supports: revenue/sales/turnover ... etc)
+    rev = _pick_series(out, "revenue", colmap.revenue)
+    exp = _pick_series(out, "expenses", colmap.expenses)
 
-    with pd.option_context("mode.use_inf_as_na", True):
-        out["profit_margin"] = (out["profit"] / rev.replace(0, pd.NA)).astype(float) * 100
+    # coerce to numeric safely (strings -> numbers; invalid -> NaN)
+    rev = pd.to_numeric(rev, errors="coerce")
+    exp = pd.to_numeric(exp, errors="coerce")
 
+    # keep canonical columns present for downstream use
+    out["revenue"]  = rev
+    out["expenses"] = exp
+
+    # profit
+    out["profit"] = rev.fillna(0) - exp.fillna(0)
+
+    # profit margin %  (avoid NA/inf -> set to 0)
+    denom = rev.replace(0, np.nan)  # avoid divide-by-zero
+    out["profit_margin"] = (out["profit"] / denom) * 100
+    out["profit_margin"] = (
+        out["profit_margin"]
+        .replace([np.inf, -np.inf], np.nan)
+        .fillna(0.0)
+        .astype(float)
+    )
+
+    # cash flow (if opening/closing provided) else fallback to profit
     if "opening_cash" in out.columns and "closing_cash" in out.columns:
-        out["cash_flow"] = (out["closing_cash"].fillna(0) - out["opening_cash"].fillna(0)).astype(float)
+        oc = pd.to_numeric(out["opening_cash"], errors="coerce").fillna(0)
+        cc = pd.to_numeric(out["closing_cash"], errors="coerce").fillna(0)
+        out["cash_flow"] = cc - oc
     else:
-        out["cash_flow"] = out["profit"].astype(float)
+        out["cash_flow"] = out["profit"].fillna(0)
 
     return out
 def get_answer(question: str):
