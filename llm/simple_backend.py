@@ -61,7 +61,7 @@ def answer(query: str, df=None, top_k: int = 4) -> Tuple[str, List[str]]:
     sources, rag_snippets = [], []
     for h in hits:
         sources.append(h["source"])
-        rag_snippets.append(f"- {h['text'][:300]}")
+        rag_snippets.append(f"- {h['text'][:900]}")
     fin = summarize_financial_df(df) if df is not None else {}
 
     parts = []
