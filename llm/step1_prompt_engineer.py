@@ -1,146 +1,95 @@
+# llm/step1_prompt_engineer.py
 class ArabicPromptEngineer:
-    """Step 1: تصميم وتنسيق الـ Prompts بالعربية"""
-    
+    """Step 1: قوالب برومبت عربية مُشدَّدة تمنع اختراع الأرقام"""
+
     def __init__(self):
         self.main_template = self._create_main_template()
         self.financial_template = self._create_financial_template()
         self.legal_template = self._create_legal_template()
-    
-    def _create_main_template(self):
-        """إنشاء الـ Prompt Template الرئيسي"""
-        template = """
-        أنت مساعد مالي خبير تُدعى "رَكِيم" وتتحدث العربية بطلاقة. مهمتك مساعدة الشركات الصغيرة والمتوسطة في السعودية.
 
-        🏢 **معلومات الشركة:**
-        {company_info}
-        
-        📊 **البيانات المالية:**
-        {financial_data}
-        
-        📚 **المعلومات التنظيمية من ZATCA:**
-        {zatca_info}
-        
-        💬 **سؤال المستخدم:**
-        {question}
-        
-        🎯 **تعليمات الرد:**
-        1. أجب باللغة العربية الفصحى أو العامية المفهومة
-        2. استخدم الأرقام والسياق المالي المقدم في ردك
-        3. استند إلى المعلومات الرسمية من ZATCA عند الإجابة عن الضرائب أو الزكاة
-        4. اذكر المصادر عندما تستخدم معلومات من ZATCA
-        5. قدم نصائح عملية وقابلة للتطبيق
-        6. إذا لم تكن المعلومات كافية، اطلب توضيحاً
-        
-        💡 **الرد:**
-        """
+    def _guard_block(self) -> str:
+        return (
+            "🛡️ **قواعد صارمة (اتبع بدقة):**\n"
+            "• الأرقام تُذكر فقط من القيم المصرّح بها في (القيم المسموح بها) أدناه.\n"
+            "• لا تُولّد أرقامًا جديدة أو تقديرات. إذا لم توجد قيمة مطلوبة، قل: «لا أستطيع التأكيد بناءً على البيانات المتاحة».\n"
+            "• لا تغيّر الوحدات ولا التقريب إلا بصيغة لفظية (مثال: تقريبًا، نحو...).\n"
+            "• عند ذكر أنظمة/ضرائب، اذكر المصدر (ZATCA) إن وُجد في السياق.\n"
+        )
+
+    def _allowed_values_block(self, allowed_values_text: str) -> str:
+        if not allowed_values_text:
+            return "القيم المسموح بها: (غير متوفرة)\n"
+        return f"القيم المسموح بها:\n{allowed_values_text}\n"
+
+    def _create_main_template(self):
+        # ✅ نوحّي طول الشرح 80–120 كلمة + 3 توصيات نقطية فقط
+        template = (
+            "أنت مساعد مالي عربي يُدعى «ركيم». مهمتك شرح وتحليل فقط—ولا يجوز اختراع أرقام.\n\n"
+            "🏢 **معلومات الشركة:**\n{company_info}\n\n"
+            "📊 **البيانات المالية:**\n{financial_data}\n\n"
+            "📚 **معلومات ZATCA (إن وُجدت):**\n{zatca_info}\n\n"
+            "{guard}\n"
+            "{allowed_values}\n"
+            "❓ **سؤال المستخدم:**\n{question}\n\n"
+            "🎯 **إرشادات الإخراج:**\n"
+            "1) اكتب الشرح المختصر بين 80 و 120 كلمة بالعربية فقط.\n"
+            "2) قدّم 3 توصيات عملية كقائمة نقطية واضحة.\n"
+            "3) لا تذكر أي رقم غير موجود في (القيم المسموح بها).\n"
+            "4) عند الاستناد إلى ZATCA اذكر «المصدر: …»\n\n"
+            "💬 **الرد:**\n"
+        )
         return template
-    
+
     def _create_financial_template(self):
-        """إنشاء Template خاص بالأسئلة المالية"""
-        template = """
-        أنت خبير مالي متخصص في تحليل البيانات المالية للشركات السعودية.
-        
-        📈 **التحليل المالي المطلوب:**
-        - قدم تحليلاً واضحاً للبيانات المالية
-        - حدد نقاط القوة والضعف
-        - قدم توصيات عملية للتحسين
-        
-        {context}
-        
-        ❓ السؤال: {question}
-        
-        📊 الرد التحليلي:
-        """
-        return template
-    
+        return (
+            "أنت خبير مالي تشرح المؤشرات من البيانات أدناه.\n\n"
+            "{guard}\n{allowed_values}\n"
+            "{context}\n\n"
+            "❓ السؤال: {question}\n\n"
+            "📊 الرد التحليلي:\n"
+        )
+
     def _create_legal_template(self):
-        """إنشاء Template خاص بالأسئلة القانونية والتنظيمية"""
-        template = """
-        أنت مستشار قانوني متخصص في قوانين الزكاة والضريبة في السعودية.
-        
-        ⚖️ **التوجيهات القانونية:**
-        - قدم المعلومات بدقة مع ذكر المصادر
-        - اذكر المواد والنصوص ذات الصلة
-        - نبه إلى الالتزامات والمواعيد
-        
-        {context}
-        
-        ❓ السؤال القانوني: {question}
-        
-        📜 الرد القانوني:
-        """
-        return template
-    
-    def format_main_prompt(self, company_info, financial_data, zatca_info, question):
-        """تنسيق الـ Prompt الرئيسي"""
+        return (
+            "أنت مستشار ضرائب/زكاة سعودي. اذكر المصادر عند الاقتضاء.\n\n"
+            "{guard}\n{allowed_values}\n"
+            "{context}\n\n"
+            "❓ السؤال القانوني: {question}\n\n"
+            "📜 الرد القانوني:\n"
+        )
+
+    def format_main_prompt(self, company_info, financial_data, zatca_info, question, allowed_values_text=""):
         return self.main_template.format(
             company_info=company_info,
             financial_data=financial_data,
             zatca_info=zatca_info,
-            question=question
+            question=question,
+            guard=self._guard_block(),
+            allowed_values=self._allowed_values_block(allowed_values_text),
         )
-    
-    def format_financial_prompt(self, context, question):
-        """تنسيق الـ Prompt المالي"""
+
+    def format_financial_prompt(self, context, question, allowed_values_text=""):
         return self.financial_template.format(
             context=context,
-            question=question
+            question=question,
+            guard=self._guard_block(),
+            allowed_values=self._allowed_values_block(allowed_values_text),
         )
-    
-    def format_legal_prompt(self, context, question):
-        """تنسيق الـ Prompt القانوني"""
+
+    def format_legal_prompt(self, context, question, allowed_values_text=""):
         return self.legal_template.format(
             context=context,
-            question=question
+            question=question,
+            guard=self._guard_block(),
+            allowed_values=self._allowed_values_block(allowed_values_text),
         )
-    
+
     def detect_query_type(self, question):
-        """كشف نوع السؤال"""
-        question_lower = question.lower()
-        
+        q = (question or "").lower()
         financial_keywords = ['ربح', 'خسارة', 'إيرادات', 'مصروفات', 'تدفق نقدي', 'ميزانية', 'تكلفة', 'ربحية']
         legal_keywords = ['زكاة', 'ضريبة', 'قانون', 'التزام', 'غرامة', 'موعد', 'تسجيل', 'شروط']
-        
-        if any(keyword in question_lower for keyword in financial_keywords):
+        if any(k in q for k in financial_keywords):
             return "financial"
-        elif any(keyword in question_lower for keyword in legal_keywords):
+        if any(k in q for k in legal_keywords):
             return "legal"
-        else:
-            return "general"
-
-# اختبار Step 1
-if __name__ == "__main__":
-    print("🧪 اختبار Step 1 - Prompt Engineer")
-    print("=" * 40)
-    
-    engineer = ArabicPromptEngineer()
-    
-    # اختبار كشف أنواع الأسئلة
-    test_questions = [
-        "كيف أحسب صافي الربح؟",
-        "ما هي مواعيد دفع الزكاة؟",
-        "كيف يمكنني تحسين التدفق النقدي؟",
-        "ما هي شروط الإعفاء من الضريبة؟",
-        "كيف أطور استراتيجية التسعير؟"
-    ]
-    
-    print("📊 اختبار كشف أنواع الأسئلة:")
-    for i, question in enumerate(test_questions, 1):
-        query_type = engineer.detect_query_type(question)
-        print(f"   {i}. '{question}'")
-        print(f"      → النوع: {query_type}")
-    
-    # اختبار تنسيق الـ Prompt
-    print("\n🎯 اختبار تنسيق الـ Prompts:")
-    
-    # نموذج بيانات تجريبية
-    company_info = "شركة التطوير المحدودة"
-    financial_data = "الإيرادات: 100,000 ريال، المصروفات: 80,000 ريال"
-    zatca_info = "معلومات عن ضريبة القيمة المضافة"
-    
-    test_question = "كيف أحسب الضريبة المستحقة؟"
-    prompt = engineer.format_main_prompt(company_info, financial_data, zatca_info, test_question)
-    print(f"   Prompt الرئيسي (أول 200 حرف):")
-    print(f"   {prompt[:200]}...")
-    
-    print("\n✅ Step 1 جاهز للعمل!")
+        return "general"
