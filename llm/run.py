@@ -1,126 +1,166 @@
+# llm/run.py
+from __future__ import annotations
+from typing import Tuple, List, Any, Dict
 import os
-import sys
-import pandas as pd
-from dotenv import load_dotenv
 
-# تحميل .env في البداية
-load_dotenv(override=True)
+# طبقاتنا
+from .step2_chain_setup import LangChainSetup
+from .step1_prompt_engineer import ArabicPromptEngineer
+from .step3_context_formatter import ContextFormatter
 
-# استيراد الوحدات
-from step1_prompt_engineer import ArabicPromptEngineer
-from step2_chain_setup import LangChainSetup
-from step3_context_formatter import ContextFormatter
-from step4_response_parser import ResponseParser
+# Backups بسيطة لو انهار أي جزء
+try:
+    from .simple_backend import simple_retrieve, summarize_financial_df
+except Exception:
+    def simple_retrieve(q: str, k: int = 4): return []
+    def summarize_financial_df(df): return {}
 
-class RakeemChatbot:
-    """الواجهة الرئيسية للشات بوت"""
-    
-    def __init__(self, excel_file_path=None):
-        print("🤖 جاري تهيئة شات بوت ركيم...")
-        
-        # 1. تهيئة Prompt Engineer
-        self.prompt_engineer = ArabicPromptEngineer()
-        print("✅ تم تحميل Prompt Engineer")
-        
-        # 2. تهيئة LangChain + RAG
-        self.chain_setup = LangChainSetup()
-        self.chain_setup.setup_llm()
-        self.chain_setup.setup_memory()
-        self.chain_setup.setup_retriever()
-        print("✅ تم تحميل LangChain + RAG")
-        
-        # 3. تهيئة Context Formatter
-        self.context_formatter = ContextFormatter()
-        
-        # 4. تحميل بيانات الشركة من Excel
-        self.company_data = None
-        if excel_file_path and os.path.exists(excel_file_path):
-            try:
-                self.company_data = pd.read_excel(excel_file_path)
-                print(f"✅ تم تحميل بيانات الشركة: {len(self.company_data)} صف")
-            except Exception as e:
-                print(f"⚠️ فشل تحميل Excel: {e}")
-        else:
-            print("⚠️ لم يتم تحديد ملف Excel")
-        
-        # 5. تهيئة Response Parser
-        self.response_parser = ResponseParser()
-        print("✅ تم تحميل Response Parser")
-        
-        print(f"\n🎉 شات بوت ركيم جاهز! النموذج: {self.chain_setup.model_name}")
-    
-    def ask_question(self, question: str) -> dict:
-        """السؤال الرئيسي للشات بوت"""
+# ----------------- Utilities -----------------
+def _format_fin_summary(fin: dict) -> str:
+    if not fin:
+        return ""
+    parts = [
+        "**ملخص مالي مختصر:**",
+        f"- إجمالي الإيرادات: {fin.get('total_revenue', 0):,.0f} SAR",
+        f"- إجمالي المصروفات: {fin.get('total_expenses', 0):,.0f} SAR",
+        f"- صافي الربح: {fin.get('total_profit', 0):,.0f} SAR",
+        f"- التدفق النقدي: {fin.get('total_cashflow', 0):,.0f} SAR",
+    ]
+    if fin.get("period"):
+        parts.append(f"- الفترة: {fin['period']}")
+    return "\n".join(parts)
+
+def make_allowed_values_text(df) -> str:
+    """قائمة الأرقام المسموح ذكرها، تُحقن في البرومبت لمنع اختراع الأرقام."""
+    try:
+        import pandas as pd
+        if df is None:
+            return ""
+        d = df.copy()
+        d.columns = [str(c).strip().lower().replace(" ", "_") for c in d.columns]
+        to_num = lambda name: pd.to_numeric(d.get(name), errors="coerce").fillna(0) if name in d.columns else None
+        rev = to_num("revenue"); exp = to_num("expenses"); pro = to_num("profit"); cf = to_num("cash_flow")
+        vat_c = to_num("vat_collected"); vat_p = to_num("vat_paid")
+        lines = []
+        if rev is not None: lines.append(f"- إجمالي الإيرادات = {float(rev.sum()):.2f}")
+        if exp is not None: lines.append(f"- إجمالي المصروفات = {float(exp.sum()):.2f}")
+        if pro is not None: lines.append(f"- صافي الربح = {float(pro.sum()):.2f}")
+        if cf is not None:  lines.append(f"- التدفق النقدي = {float(cf.sum()):.2f}")
+        if vat_c is not None and vat_p is not None:
+            lines.append(f"- صافي ضريبة القيمة المضافة = {float(vat_c.sum() - vat_p.sum()):.2f}")
+        return "\n".join(lines)
+    except Exception:
+        return ""
+
+def _collect_sources_from_docs(docs: List[Any]) -> List[str]:
+    sources = []
+    for d in docs or []:
+        src = None
         try:
-            # الخطوة 1: تحديد نوع السؤال
-            query_type = self.prompt_engineer.detect_query_type(question)
-            print(f"🔍 نوع السؤال: {query_type}")
-            
-            # الخطوة 2: تحضير السياقات الأربعة
-            company_info = ""
-            financial_data = ""
-            zatca_info = ""
-            
-            # جمع معلومات الشركة والبيانات المالية
-            if self.company_data is not None and not self.company_data.empty:
-                company_info = self.context_formatter.format_company_info(self.company_data)
-                financial_data = self.context_formatter.format_financial_context(self.company_data)
-            
-            # جمع معلومات ZATCA من RAG (إذا كان السؤال قانوني أو تنظيمي)
-            if query_type in ['legal', 'zatca', 'compliance']:
-                rag_context = self.chain_setup.get_context_from_rag(question)
-                if rag_context:
-                    zatca_info = rag_context
-            
-            # الخطوة 3: تنسيق الـ prompt بالـ 4 parameters
-            formatted_prompt = self.prompt_engineer.format_main_prompt(
-                company_info=company_info,
-                financial_data=financial_data,
-                zatca_info=zatca_info,
-                question=question
-            )
-            
-            # الخطوة 4: استدعاء LLM
-            llm_response = self.chain_setup.ask_question_real(formatted_prompt, context=None)
-            
-            # الخطوة 5: تحليل الإجابة
-            parsed_response = self.response_parser.parse_llm_response(llm_response['answer'])
-            
-            # إرجاع النتيجة الكاملة
-            return {
-                "answer": llm_response['answer'],
-                "parsed": parsed_response,
-                "query_type": query_type,
-                "used_rag": llm_response.get('used_rag', False),
-                "source_documents": llm_response.get('source_documents', [])
-            }
-            
-        except Exception as e:
-            error_msg = f"❌ خطأ في معالجة السؤال: {str(e)}"
-            print(error_msg)
-            import traceback
-            traceback.print_exc()
-            return {
-                "answer": error_msg,
-                "parsed": {"content": error_msg, "confidence": 0},
-                "query_type": "error",
-                "used_rag": False
-            }
-    
-    def clear_memory(self):
-        """مسح ذاكرة المحادثة"""
-        self.chain_setup.clear_memory()
-        print("✅ تم مسح الذاكرة")
+            if hasattr(d, "metadata"):
+                md = d.metadata
+                src = (md.get("source") if isinstance(md, dict) else None)
+        except Exception:
+            pass
+        if not src:
+            src = "ZATCA"
+        sources.append(src)
+    # unique order-preserved
+    return list(dict.fromkeys(sources))
 
-# للاختبار
-if __name__ == "__main__":
-    print("🧪 اختبار Rakeem Chatbot")
-    print("=" * 60)
-    
-    chatbot = RakeemChatbot(excel_file_path='./Rakeem/data/operation_data_Rakeem.xlsx')
-    
-    question = "ما هي شروط إصدار الفاتورة الإلكترونية في السعودية؟"
-    print(f"\n📝 السؤال: {question}")
-    
-    response = chatbot.ask_question(question)
-    print(f"\n💡 الإجابة:\n{response['answer']}")
+# ----------------- Public API -----------------
+def chat_answer(question: str, df=None, top_k: int = 4) -> Tuple[str, List[str]]:
+    """
+    واجهة الشات الموحدة للـ UI:
+    - تُرجّع نصًا مُنسقًا + قائمة مصادر.
+    - تُنتج شرحًا عربيًا باستخدام LLM *عند توفره* مع حواجز تمنع اختراع الأرقام.
+    - الأرقام نفسها تُسحب من DF فقط (لا يُسمح للـ LLM بتوليد أرقام جديدة).
+    """
+    if not question or not isinstance(question, str):
+        return "لم أتلقَّ سؤالاً صالحًا.", []
+
+    # 1) ملخص مالي من DF
+    fin = summarize_financial_df(df) if df is not None else {}
+    fin_block = _format_fin_summary(fin)
+
+    # 2) جهّز RAG/LLM
+    used_llm = False
+    llm_answer = ""
+    rag_snips_block = ""
+    sources: List[str] = []
+
+    try:
+        # تهيئة الـ LLM + الاسترجاع
+        setup = LangChainSetup()
+        llm_ok = setup.setup_llm()
+        setup.setup_memory()
+        setup.setup_retriever()
+
+        # تنسيق السياقات
+        fmt = ContextFormatter()
+
+        # استرجاع نصوص عبر FAISS إن وُجد
+        rag_payload = setup.get_context_from_rag(question)
+        docs = []
+        if isinstance(rag_payload, dict) and rag_payload.get("text"):
+            # FAISS
+            zatca_context = fmt.format_zatca_context(rag_payload.get("docs", []))
+            docs = rag_payload.get("docs", [])
+        else:
+            # سقوط للبحث البسيط — ارجع مقتطفات يدوية
+            hits = simple_retrieve(question, k=top_k)
+            docs = [{"page_content": h.get("text", ""), "metadata": {"source": h.get("source", "ZATCA")}} for h in hits]
+            zatca_context = fmt.format_zatca_context(docs)
+
+        sources = _collect_sources_from_docs(docs)
+
+        company_info = fmt.format_company_info(df) if df is not None else "⚠️ لا توجد معلومات شركة."
+        financial_data = fmt.format_financial_context(df) if df is not None else "⚠️ لا توجد بيانات مالية."
+        allowed_vals = make_allowed_values_text(df)
+
+        # نبني برومبت مُقيد
+        pe = ArabicPromptEngineer()
+        prompt = pe.format_main_prompt(
+            company_info=company_info,
+            financial_data=financial_data,
+            zatca_info=zatca_context,
+            question=question,
+            allowed_values_text=allowed_vals
+        )
+
+        if llm_ok:
+            res = setup.ask_question_real(prompt)
+            llm_answer = (res.get("answer") or "").strip()
+            used_llm = True
+
+        # نصّ المقتطفات (نعرضه دائمًا للشفافية)
+        try:
+            # نعيد استخراج المقتطفات كنقاط قصيرة
+            snips = []
+            for d in docs[:top_k]:
+                txt = getattr(d, "page_content", None) or d.get("page_content") or ""
+                if len(txt) > 900: txt = txt[:900] + "..."
+                snips.append(f"- {txt}")
+            if snips:
+                rag_snips_block = "**مقتطفات ذات صلة من لوائح/إجابات ZATCA:**\n" + "\n".join(snips)
+        except Exception:
+            pass
+
+    except Exception as e:
+        # فشل كامل — نرجع أقل شيء مفيد
+        return f"{fin_block}\n\nلم أستطع توليد شرح الآن: {e}\n", sources
+
+    # 3) التجميع النهائي
+    out_parts = []
+    if fin_block:
+        out_parts.append(fin_block)
+    if used_llm and llm_answer:
+        out_parts.append("**الشرح المختصر:**\n" + llm_answer)
+    if rag_snips_block:
+        out_parts.append(rag_snips_block)
+    if not out_parts:
+        out_parts.append("لم أعثر على معلومات كافية. ارفع/ي ملفك أو عدّل/ي السؤال.")
+    if sources:
+        out_parts.append("**المصادر:** " + " ، ".join(sources))
+
+    return "\n\n".join(out_parts), sources
