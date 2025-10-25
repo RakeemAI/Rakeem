@@ -1,163 +1,116 @@
+# llm/step3_context_formatter.py
 import pandas as pd
 import json
 from typing import List, Any
 
 class ContextFormatter:
-    """Step 3: تنسيق ودمج السياقات المختلفة"""
-    
+    """Step 3: تنسيق ودمج السياقات المختلفة (متوافق مع أعمدة engine)"""
+
     def __init__(self):
         self.company_info = ""
         self.financial_data = ""
-        
+
+    def _canon(self, df: pd.DataFrame) -> pd.DataFrame:
+        out = df.copy()
+        out.columns = [str(c).strip().lower().replace(" ", "_") for c in out.columns]
+        return out
+
     def format_financial_context(self, company_data: pd.DataFrame) -> str:
-        """تنسيق البيانات المالية من المحرك المالي"""
         try:
-            if company_data.empty:
+            if company_data is None or company_data.empty:
                 return "⚠️ لا توجد بيانات مالية متاحة"
-            
-            # استخراج البيانات الأساسية
-            total_revenue = company_data['Revenue'].sum()
-            total_expenses = company_data['Expenses'].sum() 
-            total_profit = company_data['Profit'].sum()
-            total_vat = company_data['Net_VAT_Payable'].sum()
-            total_zakat = company_data['Zakat_Due'].sum()
-            
-            # حساب النسب
-            profit_margin = (total_profit / total_revenue * 100) if total_revenue > 0 else 0
-            
-            # تنسيق السياق المالي
+
+            df = self._canon(company_data)
+
+            total_revenue = float(pd.to_numeric(df.get("revenue"), errors="coerce").fillna(0).sum())
+            total_expenses = float(pd.to_numeric(df.get("expenses"), errors="coerce").fillna(0).sum())
+            total_profit   = float(pd.to_numeric(df.get("profit"), errors="coerce").fillna(0).sum())
+            total_vat      = float(pd.to_numeric(df.get("vat_collected"), errors="coerce").fillna(0).sum()
+                                   - pd.to_numeric(df.get("vat_paid"), errors="coerce").fillna(0).sum())
+            total_zakat    = float(pd.to_numeric(df.get("zakat_due"), errors="coerce").fillna(0).sum()
+                                   if "zakat_due" in df.columns else 0.0)
+
+            profit_margin = (total_profit / total_revenue * 100) if total_revenue > 0 else 0.0
+
+            # آخر شهر/تاريخ
+            period_line = ""
+            if "date" in df.columns:
+                d = pd.to_datetime(df["date"], errors="coerce")
+                if d.notna().any():
+                    period_line = f"\n• الفترة: {d.min().date()} → {d.max().date()}"
+
             financial_context = f"""
 📊 **البيانات المالية الشاملة:**
-
 • الإيرادات الإجمالية: {total_revenue:,.2f} ريال
 • المصروفات الإجمالية: {total_expenses:,.2f} ريال
 • صافي الربح: {total_profit:,.2f} ريال
 • هامش الربح: {profit_margin:.2f}%
-
-• ضريبة القيمة المضافة المستحقة: {total_vat:,.2f} ريال
-• الزكاة المستحقة: {total_zakat:,.2f} ريال
-
-• عدد الأشهر المحللة: {len(company_data)} شهر
-• آخر شهر في البيانات: {company_data['Month'].iloc[-1]}
+• صافي ضريبة القيمة المضافة: {total_vat:,.2f} ريال
+• الزكاة المستحقة: {total_zakat:,.2f} ريال{period_line}
 """
-            
             self.financial_data = financial_context
-            return financial_context
-            
+            return financial_context.strip()
+
         except Exception as e:
             return f"❌ خطأ في تنسيق البيانات المالية: {e}"
-    
+
     def format_company_info(self, company_data: pd.DataFrame) -> str:
-        """تنسيق معلومات الشركة"""
         try:
-            if company_data.empty:
+            if company_data is None or company_data.empty:
                 return "⚠️ لا توجد معلومات عن الشركة"
-            
-            company_name = company_data['entity_name'].iloc[0] if 'entity_name' in company_data.columns else "غير معروف"
-            
+            df = self._canon(company_data)
+            entity = df.get("entity_name")
+            company_name = str(entity.iloc[0]) if entity is not None and len(entity) else "غير معروف"
+
+            # فترة مبنية على date إن وجدت
+            period = ""
+            if "date" in df.columns:
+                d = pd.to_datetime(df["date"], errors="coerce")
+                if d.notna().any():
+                    period = f"من {d.min().date()} إلى {d.max().date()}"
+
             company_info = f"""
 🏢 **معلومات الشركة:**
-
 • اسم الشركة: {company_name}
-• فترة البيانات: من {company_data['Month'].iloc[0]} إلى {company_data['Month'].iloc[-1]}
-• عدد السجلات: {len(company_data)} شهر
-
-📈 **المؤشرات الرئيسية:**
-- متوسط الإيرادات الشهرية: {company_data['Revenue'].mean():,.2f} ريال
-- متوسط المصروفات الشهرية: {company_data['Expenses'].mean():,.2f} ريال
-- متوسط الربح الشهري: {company_data['Profit'].mean():,.2f} ريال
+• فترة البيانات: {period or "غير محددة"}
+• عدد السجلات: {len(df)} سجل
 """
-            
-            self.company_info = company_info
-            return company_info
-            
+            self.company_info = company_info.strip()
+            return self.company_info
+
         except Exception as e:
             return f"❌ خطأ في تنسيق معلومات الشركة: {e}"
-    
+
     def format_zatca_context(self, retrieved_docs: List[Any]) -> str:
-        """تنسيق المعلومات المسترجعة من ZATCA"""
         try:
             if not retrieved_docs:
                 return "🔍 لم يتم العثور على معلومات محددة من ZATCA لهذا السؤال."
-            
-            zatca_context = "📚 **المعلومات التنظيمية من ZATCA:**\n"
-            
-            for i, doc in enumerate(retrieved_docs[:3], 1):  # أول 3 نتائج فقط
-                # استخراج المحتوى من المستند
-                content = doc.page_content if hasattr(doc, 'page_content') else str(doc)
-                source = doc.metadata.get('source', 'مصدر غير معروف') if hasattr(doc, 'metadata') else 'مصدر غير معروف'
-                
-                # تقصير المحتوى إذا كان طويلاً
-                if len(content) > 200:
-                    content = content[:200] + "..."
-                
-                zatca_context += f"\n{i}. {content}\n"
-                zatca_context += f"   📍 **المصدر:** {source}\n"
-            
-            return zatca_context
-            
+            out = ["📚 **المعلومات التنظيمية من ZATCA:**"]
+            for i, doc in enumerate(retrieved_docs[:3], 1):
+                content = getattr(doc, "page_content", str(doc))
+                source  = getattr(getattr(doc, "metadata", {}), "get", lambda *_: "مصدر غير معروف")("source")
+                if len(content) > 900:
+                    content = content[:900] + "..."
+                out.append(f"\n{i}. {content}\n   📍 **المصدر:** {source}")
+            return "\n".join(out)
         except Exception as e:
             return f"❌ خطأ في تنسيق معلومات ZATCA: {e}"
-    
+
     def merge_all_contexts(self, company_data: pd.DataFrame, retrieved_docs: List[Any], question: str) -> dict:
-        """دمج جميع السياقات في قاموس منظم"""
         try:
-            # تنسيق جميع السياقات
             company_info = self.format_company_info(company_data)
-            financial_data = self.format_financial_context(company_data) 
+            financial_data = self.format_financial_context(company_data)
             zatca_info = self.format_zatca_context(retrieved_docs)
-            
-            contexts = {
+            return {
                 "company_info": company_info,
                 "financial_data": financial_data,
                 "zatca_info": zatca_info,
                 "question": question
             }
-            
-            print("✅ تم دمج جميع السياقات بنجاح")
-            return contexts
-            
-        except Exception as e:
-            print(f"❌ خطأ في دمج السياقات: {e}")
+        except Exception:
             return {
                 "company_info": "",
-                "financial_data": "", 
+                "financial_data": "",
                 "zatca_info": "",
                 "question": question
             }
-
-# اختبار Step 3
-if __name__ == "__main__":
-    print("🧪 اختبار Step 3 - Context Formatter")
-    print("=" * 40)
-    
-    formatter = ContextFormatter()
-    
-    # بيانات تجريبية للاختبار
-    test_data = pd.DataFrame({
-        'entity_name': ['شركة الاختبار'],
-        'Month': ['2024-01', '2024-02'],
-        'Revenue': [150000, 180000],
-        'Expenses': [120000, 140000],
-        'Profit': [30000, 40000],
-        'Net_VAT_Payable': [2250, 2700],
-        'Zakat_Due': [750, 1000]
-    })
-    
-    print("1. اختبار تنسيق البيانات المالية...")
-    financial_context = formatter.format_financial_context(test_data)
-    print(f"   ✅ البيانات المالية: {len(financial_context)} حرف")
-    
-    print("2. اختبار تنسيق معلومات الشركة...")
-    company_info = formatter.format_company_info(test_data)
-    print(f"   ✅ معلومات الشركة: {len(company_info)} حرف")
-    
-    print("3. اختبار تنسيق معلومات ZATCA...")
-    zatca_context = formatter.format_zatca_context([])  # قائمة فارغة للاختبار
-    print(f"   ✅ معلومات ZATCA: {len(zatca_context)} حرف")
-    
-    print("4. اختبار دمج السياقات...")
-    merged_contexts = formatter.merge_all_contexts(test_data, [], "سؤال تجريبي")
-    print(f"   ✅ تم دمج {len(merged_contexts)} سياق")
-    
-    print("\n✅ Step 3 جاهز للعمل!")
