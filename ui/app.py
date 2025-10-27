@@ -9,6 +9,7 @@ import streamlit as st
 REPO_ROOT = os.path.dirname(os.path.dirname(__file__))
 if REPO_ROOT not in sys.path:
     sys.path.insert(0, REPO_ROOT)
+from engine.forecasting_core import build_revenue_forecast
 
 # ---------- Engine imports ----------
 from engine.io import load_excel, load_csv
@@ -16,6 +17,55 @@ from engine.validate import validate_columns
 from engine.compute_core import compute_core
 from engine.taxes import compute_vat, compute_zakat
 from engine.export import to_json
+
+# ---------- Forecasting import (optional fallback) ----------
+try:
+    from engine.forecasting_core import build_revenue_forecast
+except Exception:
+    import pandas as _pd
+    from statsmodels.tsa.holtwinters import ExponentialSmoothing as _ES
+
+    def _prep_monthly_series(_df, _date_col="date", _val_col="revenue"):
+        d = _df[[_date_col, _val_col]].copy()
+        d[_date_col] = _pd.to_datetime(d[_date_col], errors="coerce")
+        d = d.dropna(subset=[_date_col]).sort_values(_date_col)
+        d[_date_col] = _pd.DatetimeIndex(d[_date_col]).to_period("M").to_timestamp("MS")
+        d = d.drop_duplicates(subset=[_date_col], keep="last").set_index(_date_col).asfreq("MS")
+        d[_val_col] = _pd.to_numeric(d[_val_col], errors="coerce").ffill().fillna(0.0)
+        return d[_val_col].astype(float)
+
+    def _forecast_series(y, periods=6):
+        y = y.dropna()
+        if y.size == 0:
+            idx = _pd.date_range(_pd.Timestamp.today().to_period("M").to_timestamp("MS") + _pd.offsets.MonthBegin(1),
+                                 periods=periods, freq="MS")
+            return _pd.Series([0.0]*periods, index=idx)
+        if y.nunique() <= 1 or y.size < 4:
+            last = float(y.iloc[-1])
+            idx = _pd.date_range(y.index.max() + _pd.offsets.MonthBegin(1), periods=periods, freq="MS")
+            return _pd.Series([last]*periods, index=idx)
+        try:
+            fit = _ES(y, trend="add", damped_trend=True, seasonal=None).fit(optimized=True, use_brute=True)
+            return fit.forecast(periods)
+        except Exception:
+            last = float(y.iloc[-1])
+            idx = _pd.date_range(y.index.max() + _pd.offsets.MonthBegin(1), periods=periods, freq="MS")
+            return _pd.Series([last]*periods, index=idx)
+
+    def build_revenue_forecast(_df, periods=6, entity_col="entity_name"):
+        if "date" not in _df.columns or "revenue" not in _df.columns:
+            raise ValueError("أعمدة date / revenue مطلوبة للتنبؤ.")
+        out = []
+        entities = _df[entity_col].dropna().unique().tolist() if entity_col in _df.columns else ["Default"]
+        for ent in entities:
+            sub = _df[_df[entity_col] == ent] if entity_col in _df.columns else _df
+            y = _prep_monthly_series(sub, "date", "revenue")
+            fc = _forecast_series(y, periods=periods)
+            _res = _pd.DataFrame({"date": fc.index, "forecast": fc.values})
+            _res["lower"], _res["upper"] = _res["forecast"]*0.90, _res["forecast"]*1.10
+            _res[entity_col] = ent
+            out.append(_res)
+        return _pd.concat(out, ignore_index=True)
 
 # ---------- Streamlit config ----------
 st.set_page_config(page_title="Rakeem", layout="wide")
@@ -63,7 +113,7 @@ st.markdown("""
 .chat-bubble li {
   position: relative;
   margin: 6px 0;
-  padding-right: 1.6rem; /* إدخال التعداد قليلاً */
+  padding-right: 1.6rem;
 }
 .chat-bubble li::before {
   counter-increment: item;
@@ -191,7 +241,7 @@ st.markdown(f"""
     <li>💸 إجمالي المصروفات: <b>{sar(total_expenses)}</b></li>
     <li>💰 صافي الربح: <b>{sar(total_profit)}</b></li>
     <li>💧 التدفق النقدي: <b>{sar(total_cashflow)}</b></li>
-    <li>🗓️ الفترة: <b>{date_min:%d-%m-%Y}</b> → <b>{date_max:%d-%m-%Y}</b></li>
+    <li>🗓 الفترة: <b>{date_min:%d-%m-%Y}</b> → <b>{date_max:%d-%m-%Y}</b></li>
   </ul>
 </div>
 """, unsafe_allow_html=True)
@@ -208,14 +258,14 @@ def stylize_labels(text: str) -> str:
     if not isinstance(text, str):
         return text
     text = re.sub(r"\[\s*(Topic|Question|Answer|Example|Source)\s*\]", r"\1", text)
-    for lab in ["Topic", "Question", "Answer", "Example", "Source"]:
+    for lab in ["Topic", "Question", "Answer", "Source", "Example"]:
         text = re.sub(rf"\b{lab}\b", f'<span class="label-chip"><b>{lab}</b></span>', text)
     return text
 
 def normalize_fin_summary(text: str) -> str:
     if not isinstance(text, str):
         return text
-    text = re.sub(r"\*+\s*ملخص\s+مالي\s+مختصر\s*[:\-–]*\s*\*+", r"<b>📊 ملخص مالي مختصر</b>", text)
+    text = re.sub(r"\+\s*ملخص\s+مالي\s+مختصر\s[:\-–]\s\*+", r"<b>📊 ملخص مالي مختصر</b>", text)
     pattern = (
         r"(إجمالي الإيرادات:\s*[^-\n]+)\s*-\s*"
         r"(إجمالي المصروفات:\s*[^-\n]+)\s*-\s*"
@@ -253,6 +303,96 @@ def render_sources(sources: List[str]) -> None:
     chips = "".join(chip_parts)
     st.markdown(f"<div class='rtl'><b>المصادر:</b> {chips}</div>", unsafe_allow_html=True)
 
+# ---------- Forecast (expander) ----------
+st.markdown('<div class="hr"></div>', unsafe_allow_html=True)
+with st.expander("🔮 التنبؤ المالي (افتح للعرض)", expanded=False):
+    st.markdown('<div class="rtl"><h4>تنـبؤ الإيرادات (Holt-Winters)</h4></div>', unsafe_allow_html=True)
+
+    cols = st.columns(3)
+    with cols[0]:
+        periods = st.slider("عدد الأشهر القادمة", min_value=3, max_value=12, value=6, step=1)
+
+    has_entity = "entity_name" in df.columns
+
+    
+    def _compute_forecast_now(_df, _periods):
+        try:
+            return build_revenue_forecast(_df, periods=_periods)
+        except Exception as e:
+            raise RuntimeError(str(e))
+
+    try:
+        fc_all = _compute_forecast_now(df, periods)
+
+        if has_entity and "entity_name" in fc_all.columns:
+            entity_options = sorted(df["entity_name"].dropna().astype(str).unique().tolist())
+            with cols[1]:
+                entity = st.selectbox("الشركة", options=entity_options, index=0)
+            fc_ent = fc_all[fc_all["entity_name"].astype(str) == str(entity)].copy()
+            hist = df[df["entity_name"].astype(str) == str(entity)][["date", "revenue"]].copy()
+        else:
+            fc_ent = fc_all.copy()
+            hist = df[["date", "revenue"]].copy()
+
+        
+        hist["date"] = pd.to_datetime(hist["date"], errors="coerce")
+        hist = hist.dropna(subset=["date"]).sort_values("date")
+        fc_ent["date"] = pd.to_datetime(fc_ent["date"], errors="coerce")
+        fc_ent = fc_ent.dropna(subset=["date"]).sort_values("date")
+
+        
+        import plotly.graph_objects as go
+        fig = go.Figure()
+        fig.add_trace(go.Scatter(
+            x=hist["date"], y=hist["revenue"],
+            mode="lines+markers", name="الإيرادات التاريخية"
+        ))
+        fig.add_trace(go.Scatter(
+            x=fc_ent["date"], y=fc_ent["forecast"],
+            mode="lines+markers",
+            name="التنبؤ",
+            line=dict(dash="dash", width=3, color="#E11D48"),   # أحمر كرِز
+            marker=dict(color="#E11D48", size=6)
+        ))
+
+        # نضمن أن محور X يشمل التواريخ المستقبلية كلها
+        if len(hist) and len(fc_ent):
+            x_min = hist["date"].min()
+            x_max = fc_ent["date"].max()
+            fig.update_xaxes(range=[x_min, x_max + pd.Timedelta(days=5)])
+
+        fig.update_layout(
+            height=420, margin=dict(l=10, r=10, t=30, b=10),
+            xaxis_title="التاريخ", yaxis_title="الإيرادات",
+            legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
+        )
+        st.plotly_chart(fig, use_container_width=True)
+
+        # توصيات مبسّطة
+        st.markdown("<div class='rtl'><h5>💡 توصيات سريعة</h5></div>", unsafe_allow_html=True)
+        tips = []
+        if len(fc_ent) >= 2:
+            base = max(float(fc_ent["forecast"].iloc[0]), 1e-9)
+            growth = (float(fc_ent["forecast"].iloc[-1]) - base) / base
+            if growth > 0.10:
+                tips.append("اتجاه نمو متوقع ↑ — زيدي المخزون/الطاقة الإنتاجية وخططي للسيولة.")
+            elif growth < -0.10:
+                tips.append("اتجاه هبوط متوقع ↓ — راجعي التسعير والتسويق وخفّضي المصروفات المتغيرة.")
+        recent_hist = hist.tail(3)["revenue"].mean() if len(hist) else 0
+        last_fc = float(fc_ent["forecast"].iloc[-1]) if len(fc_ent) else 0
+        if recent_hist > 0:
+            delta = (last_fc - recent_hist) / recent_hist
+            if delta > 0.15:
+                tips.append("التنبؤ أعلى من متوسط الأشهر الأخيرة بـ+15% — استعدّي لطلب أعلى وخططي للسيولة.")
+            elif delta < -0.15:
+                tips.append("التنبؤ أقل من المتوسط بـ15%− — اضبطي التكاليف الثابتة وراقبي التدفق النقدي.")
+        if not tips:
+            tips.append("لا توجد إشارات مقلقة حاليًا؛ استمري بالمراقبة الشهرية.")
+        st.markdown("<div class='chat-bubble assistant rtl'>" + "<br>".join(f"• {t}" for t in tips) + "</div>", unsafe_allow_html=True)
+
+    except Exception as _e:
+        st.warning(f"تعذر حساب التنبؤ: {_e}")
+
 # ---------- Chat Section ----------
 st.markdown('<div class="hr"></div>', unsafe_allow_html=True)
 st.markdown('<div class="rtl"><h3>💬 المحادثة الذكية</h3></div>', unsafe_allow_html=True)
@@ -273,6 +413,7 @@ def _df_ctx():
     for key in ("df","financial_df","computed_df","results_df"):
         if key in globals() and "DataFrame" in str(type(globals()[key])): return globals()[key]
         if key in st.session_state and "DataFrame" in str(type(st.session_state[key])): return st.session_state[key]
+        # fallback
     return df
 
 if "chat_messages" not in st.session_state:
