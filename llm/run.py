@@ -3,12 +3,11 @@ from __future__ import annotations
 from typing import Tuple, List, Any, Dict
 import os
 
-# طبقاتنا
 from .step2_chain_setup import LangChainSetup
 from .step1_prompt_engineer import ArabicPromptEngineer
 from .step3_context_formatter import ContextFormatter
 
-# Backups بسيطة لو انهار أي جزء
+
 try:
     from .simple_backend import simple_retrieve, summarize_financial_df
 except Exception:
@@ -20,7 +19,7 @@ def _format_fin_summary(fin: dict) -> str:
     if not fin:
         return ""
     parts = [
-        "**ملخص مالي مختصر:**",
+        "📊 ملخص مالي مختصر:",
         f"- إجمالي الإيرادات: {fin.get('total_revenue', 0):,.0f} SAR",
         f"- إجمالي المصروفات: {fin.get('total_expenses', 0):,.0f} SAR",
         f"- صافي الربح: {fin.get('total_profit', 0):,.0f} SAR",
@@ -31,7 +30,6 @@ def _format_fin_summary(fin: dict) -> str:
     return "\n".join(parts)
 
 def make_allowed_values_text(df) -> str:
-    """قائمة الأرقام المسموح ذكرها، تُحقن في البرومبت لمنع اختراع الأرقام."""
     try:
         import pandas as pd
         if df is None:
@@ -70,12 +68,7 @@ def _collect_sources_from_docs(docs: List[Any]) -> List[str]:
 
 # ----------------- Public API -----------------
 def chat_answer(question: str, df=None, top_k: int = 4) -> Tuple[str, List[str]]:
-    """
-    واجهة الشات الموحدة للـ UI:
-    - تُرجّع نصًا مُنسقًا + قائمة مصادر.
-    - تُنتج شرحًا عربيًا باستخدام LLM *عند توفره* مع حواجز تمنع اختراع الأرقام.
-    - الأرقام نفسها تُسحب من DF فقط (لا يُسمح للـ LLM بتوليد أرقام جديدة).
-    """
+
     if not question or not isinstance(question, str):
         return "لم أتلقَّ سؤالاً صالحًا.", []
 
