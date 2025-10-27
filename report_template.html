@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <title>شركة ركيم المالية - تقرير مالي</title>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+Arabic:wght@300;400;600;700&display=swap');
+        body { font-family: 'Noto Sans Arabic', Arial, sans-serif; background: #f8f9fa; color:#333; margin:0; padding:0; line-height:1.6; direction:rtl; text-align:right; }
+        header { background: linear-gradient(135deg,#002147 0%,#004a8f 100%); color:#fff; padding:30px; text-align:center; }
+        footer { background:#2c3e50; color:#ecf0f1; text-align:center; padding:15px; font-size:14px; }
+        .container { max-width:1000px; margin:20px auto; padding:20px; background:#fff; box-shadow:0 0 20px rgba(0,0,0,0.1); }
+        h1{color:#fff;font-size:32px;margin-bottom:10px;font-weight:700;}
+        h2{color:#002147;font-size:24px;margin-bottom:15px;padding-bottom:10px;border-bottom:2px solid #ffcc66;font-weight:600;}
+        table{width:100%;border-collapse:collapse;margin:15px 0;font-size:16px;}
+        table, th, td{border:1px solid #ddd;}
+        th{background:linear-gradient(135deg,#ffcc66 0%,#ffb347 100%);color:#000;padding:15px;font-weight:600;font-size:16px;text-align:center;}
+        td{padding:15px;text-align:center;background:#fafafa;}
+        tr:nth-child(even) td{background:#f2f2f2;}
+        .intro-text{font-size:18px;line-height:1.8;text-align:justify;color:#444;}
+        .highlight{background:#e8f4fd;padding:20px;border-right:4px solid #002147;border-radius:4px;margin:15px 0;}
+    </style>
+</head>
+<body>
+
+<header>
+    <h1>{{ company_name }}</h1>
+    <p style="font-size:18px;margin-top:10px;">{{ report_title }}</p>
+    <div class="date-badge">{{ report_date }}</div>
+</header>
+
+<div class="container">
+    <div class="section">
+        <h2>مقدمة التقرير</h2>
+        <p class="intro-text">{{ introduction }}</p>
+        <div class="highlight">{{ highlight }}</div>
+    </div>
+
+    {{ tables|safe }}
+
+    <div class="section">
+        <h2>التوصيات والإجراءات المقترحة</h2>
+        <ul>
+        {% for r in recommendations %}
+            <li>{{ r }}</li>
+        {% endfor %}
+        </ul>
+    </div>
+</div>
+
+<footer>
+    <p>© 2024 نظام التقارير المالية - تم إنشاء هذا التقرير آليًا بتاريخ {{ report_date }}</p>
+    <p>للاستفسارات، يرجى التواصل مع إدارة الشؤون المالية</p>
+</footer>
+
+</body>
+</html>
