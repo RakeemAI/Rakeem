@@ -1,4 +1,4 @@
-from generator.report_generator import generate_financial_report
+from generator.report_generator import generate_report as generate_financial_report
 import sys, traceback
 from pathlib import Path
 import pandas as pd
