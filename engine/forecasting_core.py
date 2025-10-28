@@ -11,7 +11,6 @@ from engine.config import DEFAULT_ENGINE_CONFIG as CFG
 # ----------------------------- Utilities ---------------------------------
 
 def _pick_col(df: pd.DataFrame, candidates: Iterable[str]) -> Optional[str]:
-
     lower_map = {str(c).strip().lower(): c for c in df.columns}
     for cand in candidates:
         key = str(cand).strip().lower()
@@ -21,7 +20,6 @@ def _pick_col(df: pd.DataFrame, candidates: Iterable[str]) -> Optional[str]:
 
 
 def _entity_candidates() -> List[str]:
-
     return [
         "entity_name", "company", "company_name", "entity",
         "اسم_الشركة", "المنشأة", "المنشاة", "الكيان"
@@ -29,16 +27,16 @@ def _entity_candidates() -> List[str]:
 
 
 def _to_month_end_index(dt_like: pd.Series) -> pd.DatetimeIndex:
-
     dt = pd.to_datetime(dt_like, errors="coerce")
+    # تحويل لأي تاريخ إلى نهاية الشهر (نُبقي تحويل الفترة كما هو)
     dt = pd.DatetimeIndex(dt).to_period("M").to_timestamp("M")  # نهاية الشهر
     idx = pd.DatetimeIndex(dt, name="date")
-    idx.freq = "M"
+    # ✅ استخدم التردد الجديد MonthEnd
+    idx.freq = "ME"
     return idx
 
 
 def _prep_monthly_series(df: pd.DataFrame, date_col: str, value_col: str) -> pd.Series:
-
     d = df[[date_col, value_col]].copy()
 
     d[date_col] = pd.to_datetime(d[date_col], errors="coerce")
@@ -50,37 +48,42 @@ def _prep_monthly_series(df: pd.DataFrame, date_col: str, value_col: str) -> pd.
 
     d = d.drop_duplicates(subset=[date_col], keep="last").set_index(date_col)
 
-    d = d.asfreq("M")
+    # ✅ استخدم ME بدل M
+    d = d.asfreq("ME")
 
     d[value_col] = d[value_col].ffill().fillna(0.0)
 
     y = d[value_col].astype(float)
-    y.index = pd.DatetimeIndex(y.index, freq="M")
+    # ✅ استخدم ME بدل M
+    y.index = pd.DatetimeIndex(y.index, freq="ME")
     return y
 
 
 def _forecast_series(y: pd.Series, periods: int = 3) -> pd.Series:
-
     y = y.dropna()
     if y.size == 0:
         start = pd.Timestamp.today().to_period("M").to_timestamp("M") + pd.offsets.MonthEnd(1)
-        idx = pd.date_range(start, periods=periods, freq="M")
+        # ✅ استخدم ME بدل M
+        idx = pd.date_range(start, periods=periods, freq="ME")
         return pd.Series([0.0] * periods, index=idx)
 
     if y.nunique() <= 1 or y.size < 4:
         last = float(y.iloc[-1])
-        idx = pd.date_range(y.index.max() + pd.offsets.MonthEnd(1), periods=periods, freq="M")
+        # ✅ استخدم ME بدل M
+        idx = pd.date_range(y.index.max() + pd.offsets.MonthEnd(1), periods=periods, freq="ME")
         return pd.Series([last] * periods, index=idx)
 
     try:
         model = ExponentialSmoothing(y, trend="add", damped_trend=True, seasonal=None)
         fit = model.fit(optimized=True, use_brute=True)
         fc = fit.forecast(periods)
-        fc.index = pd.DatetimeIndex(fc.index, freq="M")
+        # ✅ استخدم ME بدل M
+        fc.index = pd.DatetimeIndex(fc.index, freq="ME")
         return fc
     except Exception:
         last = float(y.iloc[-1])
-        idx = pd.date_range(y.index.max() + pd.offsets.MonthEnd(1), periods=periods, freq="M")
+        # ✅ استخدم ME بدل M
+        idx = pd.date_range(y.index.max() + pd.offsets.MonthEnd(1), periods=periods, freq="ME")
         return pd.Series([last] * periods, index=idx)
 
 
@@ -103,14 +106,14 @@ def build_revenue_forecast(
 
     ent_col = entity_col or _pick_col(df, _entity_candidates())
 
-
     if ent_col and ent_col in df.columns:
         entities = (
             df[ent_col].dropna().astype(str).str.strip()
             .replace({"": None}).dropna().unique().tolist()
         )
     else:
-        entities = ["All"] 
+        entities = ["All"]
+
     out_frames: List[pd.DataFrame] = []
 
     for ent in entities:
@@ -134,6 +137,5 @@ def build_revenue_forecast(
 
 
 def save_forecast_csv(df: pd.DataFrame, path: str, periods: int = 3, entity_col: Optional[str] = None) -> None:
-
     res = build_revenue_forecast(df, periods=periods, entity_col=entity_col)
     res.to_csv(path, index=False, encoding="utf-8")
