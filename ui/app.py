@@ -107,7 +107,6 @@ st.markdown("""
 .chat-bubble.user{background:#ecfeff}
 .chat-bubble.assistant{background:#f8fafc}
 
-/* ✅ تعداد رقمي أنيق داخل الصندوق */
 .chat-bubble ul, .chat-bubble ol {
   list-style: none;
   counter-reset: item;
@@ -437,7 +436,7 @@ for m in st.session_state.chat_messages:
     else:
         st.markdown(f'<div class="chat-bubble {cls} rtl">{m["content"]}</div>', unsafe_allow_html=True)
 
-user_q = st.chat_input("اكتبي سؤالك هنا…")
+user_q = st.chat_input("اكتب سؤالك هنا…")
 if user_q:
     st.session_state.chat_messages.append({"role":"user","content":user_q})
     st.markdown(f'<div class="chat-bubble user rtl">{user_q}</div>', unsafe_allow_html=True)
