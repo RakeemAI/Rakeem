@@ -71,36 +71,3 @@ def generate_financial_report(
         f.write(html)
     HTML(string=html, base_url=os.getcwd()).write_pdf(output_pdf)
     return output_pdf
-    # === Compatibility wrapper: يجعل لدينا generate_financial_report متوافقة مع التكامل ===
-from typing import Dict, List, Optional
-import pandas as pd
-
-def generate_financial_report(
-    *,
-    company_name: str = "ركيم المالية",
-    report_title: str = "التقرير المالي الشامل",
-    metrics: Dict[str, float] = None,
-    recommendations: List[str] = None,
-    data_tables: Optional[Dict[str, pd.DataFrame]] = None,  # غير مستخدمة هنا
-    template_path: str = "generator/report_template.html",  # غير مستخدم هنا (نسخة ReportLab)
-    output_pdf: str = "financial_report.pdf",
-) -> str:
-    """لفّافة تحوّل استدعاء التكامل إلى التوقيع القديم generate_report(output_pdf, context)."""
-    metrics = metrics or {}
-    recommendations = recommendations or []
-
-    context = {
-        "title": report_title,
-        "kpis": {
-            "إجمالي الإيرادات": metrics.get("total_revenue", 0),
-            "إجمالي المصروفات": metrics.get("total_expenses", 0),
-            "صافي الربح": metrics.get("total_profit", 0),
-            "التدفق النقدي": metrics.get("total_cashflow", 0),
-            "صافي ضريبة القيمة المضافة": metrics.get("net_vat", 0),
-            "الزكاة المستحقة": metrics.get("zakat_due", 0),
-        },
-        "recommendations": recommendations,
-    }
-    # نستدعي دالتك الحالية
-    return generate_report(output_pdf, context)
-# === End wrapper ===
