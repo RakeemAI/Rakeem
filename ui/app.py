@@ -7,9 +7,13 @@ import streamlit as st
 
 # ---------- Ensure repo import path ----------
 REPO_ROOT = os.path.dirname(os.path.dirname(__file__))
+GEN_DIR = os.path.join(REPO_ROOT, "generator")
+REPO_ROOT = os.path.dirname(os.path.dirname(__file__))
 if REPO_ROOT not in sys.path:
     sys.path.insert(0, REPO_ROOT)
 from engine.forecasting_core import build_revenue_forecast
+from generator.report_generator import generate_financial_report
+
 
 # ---------- Engine imports ----------
 from engine.io import load_excel, load_csv
@@ -226,6 +230,8 @@ with k2: st.markdown(f'<div class="kpi-card rtl"><div class="kpi-label">إجما
 with k3: st.markdown(f'<div class="kpi-card rtl"><div class="kpi-label">صافي الربح</div><div class="kpi-value">{sar(total_profit)}</div></div>', unsafe_allow_html=True)
 with k4: st.markdown(f'<div class="kpi-card rtl"><div class="kpi-label">التدفق النقدي</div><div class="kpi-value">{sar(total_cashflow)}</div></div>', unsafe_allow_html=True)
 
+
+
 t1, t2 = st.columns(2)
 with t1: st.markdown(f'<div class="kpi-card rtl"><div class="kpi-label">صافي ضريبة القيمة المضافة</div><div class="kpi-value">{sar(net_vat)}</div></div>', unsafe_allow_html=True)
 with t2: st.markdown(f'<div class="kpi-card rtl"><div class="kpi-label">الزكاة المستحقة</div><div class="kpi-value">{sar(zakat_due)}</div></div>', unsafe_allow_html=True)
@@ -312,9 +318,10 @@ with st.expander("🔮 التنبؤ المالي (افتح للعرض)", expande
     with cols[0]:
         periods = st.slider("عدد الأشهر القادمة", min_value=3, max_value=12, value=6, step=1)
 
+    # ملاحظة: لا نعرض أي تنبيه بخصوص entity_name — المنطق يتعامل تلقائيًا
     has_entity = "entity_name" in df.columns
 
-    
+    # لا نستخدم cache هنا حتى يتغير الرسم فور تحريك السلايدر
     def _compute_forecast_now(_df, _periods):
         try:
             return build_revenue_forecast(_df, periods=_periods)
@@ -334,13 +341,13 @@ with st.expander("🔮 التنبؤ المالي (افتح للعرض)", expande
             fc_ent = fc_all.copy()
             hist = df[["date", "revenue"]].copy()
 
-        
+        # تواريخ واضحة
         hist["date"] = pd.to_datetime(hist["date"], errors="coerce")
         hist = hist.dropna(subset=["date"]).sort_values("date")
         fc_ent["date"] = pd.to_datetime(fc_ent["date"], errors="coerce")
         fc_ent = fc_ent.dropna(subset=["date"]).sort_values("date")
 
-        
+        # الرسم (بدون أي ظل أو تعبئة)
         import plotly.graph_objects as go
         fig = go.Figure()
         fig.add_trace(go.Scatter(
@@ -452,3 +459,52 @@ if user_q:
         render_sources(sources or [])
     except Exception as e:
         st.error(f"تعذر توليد الرد: {e}")
+
+# .. فوق: بعد حساب total_* و net_vat و zakat_due
+# --- داخل ui/app.py بعد حساب KPIs (total_revenue..net_vat..zakat_due) ---
+
+# --- PDF in sidebar ---
+st.sidebar.markdown("---")
+st.sidebar.subheader("📄 تقرير PDF")
+
+from generator.report_generator import generate_financial_report
+
+report_title = "التقرير المالي الشامل"
+
+# زر توليد التقرير
+if st.sidebar.button("توليد التقرير (PDF)"):
+    try:
+
+      pdf_path = generate_financial_report(
+          company_name=" ركيم المالية",
+          report_title="التقرير المالي الشامل",
+          metrics={
+              "total_revenue": total_revenue,
+              "total_expenses": total_expenses,
+              "total_profit": total_profit,
+              "total_cashflow": total_cashflow,
+              "net_vat": net_vat,
+              "zakat_due": zakat_due,
+          },
+          data_tables={
+              "الإيرادات": df[["date", "revenue"]],
+              "المصروفات": df[["date", "expenses"]],
+              "الأرباح": df[["date", "profit"]],
+          },
+          recommendations=[
+              "حافظ على نسبة الربح الحالية.",
+              "راقب المصروفات المتزايدة في الأشهر القادمة.",
+          ],
+          template_path="generator/report_template.html",
+          output_pdf="financial_report.pdf",
+      )
+      with open(pdf_path, "rb") as fh:
+          st.sidebar.download_button("⬇ تحميل التقرير", fh, "financial_report.pdf", "application/pdf")
+          st.sidebar.success("تم توليد التقرير.")
+    except Exception as e:
+        st.sidebar.error(f"فشل إنشاء التقرير: {e}")
+
+
+
+
+        
