@@ -537,16 +537,54 @@ if user_q:
         render_sources(sources or [])
     except Exception as e:
         st.error(f"تعذر توليد الرد: {e}")
+
+def infer_company_name(*dfs: pd.DataFrame) -> str:
+    # نحاول من أكثر من DataFrame: df_raw ثم df المحسوب
+    candidate_cols = [
+        "company_name", "company", "entity_name",
+        "اسم_الشركة", "المنشأة", "اسم المنشأة", "الكيان",
+        "client", "customer"
+    ]
+    for _df in dfs:
+        if _df is None:
+            continue
+        cols_lower = {c.lower(): c for c in _df.columns}
+        for c in candidate_cols:
+            # جرّب بنسخة lower و النسخة الأصلية
+            if c in _df.columns:
+                series = _df[c]
+            elif c.lower() in cols_lower:
+                series = _df[cols_lower[c.lower()]]
+            else:
+                continue
+            series = series.dropna().astype(str).str.strip()
+            series = series[series != ""]
+            if not series.empty:
+                return series.iloc[0]
+    # لو ما فيه أعمدة دالّة، جرّب من اسم الملف (اختياري)
+    # مثلاً: "AcmeCo_2025_Q1.xlsx" -> "AcmeCo"
+    try:
+        fname = uploaded_file.name.rsplit(".", 1)[0]
+        # قصّ أي لاحقات تاريخية/تعريفية بسيطة
+        # عدّل حسب نمط ملفاتك
+        fname = re.split(r"[_\-–\s]\d{4}", fname)[0].strip()
+        # تجاهل أسماء عامة
+        if fname and not re.match(r"(?i)(data|report|financial|finance|accounts?)$", fname):
+            return fname
+    except Exception:
+        pass
+    return ""  # فاضي لو ما وجدنا شيء
 # ---------- PDF in sidebar ----------
+from generator.report_generator import generate_financial_report
+
 st.sidebar.markdown("---")
 st.sidebar.subheader("📄 تقرير PDF")
 
-from generator.report_generator import generate_financial_report
-
 if st.sidebar.button("توليد التقرير (PDF)"):
     try:
+        company_from_file = infer_company_name(df_raw, df)  # ← حاول من الخام ثم المحسوب
         pdf_path = generate_financial_report(
-            company_name="ركيم المالية",
+            company_name=company_from_file,  # ← هنا
             report_title="التقرير المالي الشامل",
             metrics={
                 "total_revenue": float(df.get("revenue", pd.Series([0])).fillna(0).sum()),
@@ -573,3 +611,6 @@ if st.sidebar.button("توليد التقرير (PDF)"):
         st.sidebar.success("تم توليد التقرير.")
     except Exception as e:
         st.sidebar.error(f"فشل إنشاء التقرير: {e}")
+
+
+
