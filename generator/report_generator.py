@@ -1,3 +1,5 @@
+# generator/report_generator.py
+
 import os
 import pandas as pd
 from typing import Dict, List, Optional
@@ -18,6 +20,7 @@ def _df_to_html(name: str, df: pd.DataFrame) -> str:
         "revenue": "الإيرادات",
         "expenses": "المصروفات",
         "profit": "الربح",
+        "cash_flow": "التدفق النقدي",   # تأكد الاسم الصحيح مطابق لبياناتك
         "cashflow": "التدفق النقدي",
     }
     df = df.rename(columns={c: rename_map.get(c, c) for c in df.columns})
@@ -31,13 +34,13 @@ def _df_to_html(name: str, df: pd.DataFrame) -> str:
 
 def generate_financial_report(
     *,
-    company_name=" ركيم المالية",
-    report_title="التقرير المالي الشامل",
+    company_name: str = "",   
+    report_title: str = "التقرير المالي الشامل",
     metrics: Dict[str, float],
     recommendations: List[str],
     data_tables: Optional[Dict[str, pd.DataFrame]] = None,
-    template_path="generator/report_template.html",
-    output_pdf="financial_report.pdf",
+    template_path: str = "generator/report_template.html",
+    output_pdf: str = "financial_report.pdf",
 ):
     env = Environment(
         loader=FileSystemLoader(os.path.dirname(template_path)),
@@ -52,7 +55,7 @@ def generate_financial_report(
 
     html = tpl.render(
         base_url=os.getcwd(),
-        company_name=company_name,
+        company_name=company_name or "",   
         report_title=report_title,
         report_date=pd.Timestamp.now().strftime("%Y-%m-%d"),
         introduction="يسرّنا تقديم هذا التقرير المالي الشامل الذي يوضح الأداء المالي الحالي للشركة والتنبؤات المستقبلية.",
