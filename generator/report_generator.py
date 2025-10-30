@@ -36,6 +36,7 @@ def _df_to_html(name: str, df: pd.DataFrame) -> str:
 
 
 def _try_export_pdf_with_weasyprint(html: str, output_pdf: str) -> bool:
+    # نجرب نستوردها هنا بس، مو فوق
     try:
         from weasyprint import HTML  # type: ignore
 
@@ -46,7 +47,6 @@ def _try_export_pdf_with_weasyprint(html: str, output_pdf: str) -> bool:
 
 
 def _try_export_pdf_with_pdfkit(html: str, output_pdf: str) -> bool:
-    # يشتغل بس لو wkhtmltopdf متوفر في السيستم (غالبًا مو متوفر في streamlit cloud)
     try:
         import pdfkit  # type: ignore
 
@@ -83,12 +83,10 @@ def generate_financial_report(
         report_title=report_title,
         report_date=pd.Timestamp.now().strftime("%Y-%m-%d"),
         introduction=(
-            "يسرّنا تقديم هذا التقرير المالي الشامل الذي يوضح الأداء المالي الحالي "
-            "للشركة والتنبؤات المستقبلية."
+            "يسرّنا تقديم هذا التقرير المالي الشامل الذي يوضح الأداء المالي الحالي للشركة والتنبؤات المستقبلية."
         ),
         highlight=(
-            "يهدف هذا التقرير إلى توفير رؤية شاملة عن الأداء المالي ومساعدة متخذي "
-            "القرار في وضع الخطط المستقبلية."
+            "يهدف هذا التقرير إلى توفير رؤية شاملة عن الأداء المالي ومساعدة متخذي القرار في وضع الخطط المستقبلية."
         ),
         total_revenue=_sar(metrics.get("total_revenue", 0)),
         total_expenses=_sar(metrics.get("total_expenses", 0)),
@@ -100,17 +98,17 @@ def generate_financial_report(
         recommendations=recommendations or [],
     )
 
-    # احفظ الـ HTML دايمًا
+    # نكتب الـ HTML دايمًا
     with open("final_report.html", "w", encoding="utf-8") as f:
         f.write(html)
 
-    # جرّب WeasyPrint أول
+    # نحاول PDF بــ weasyprint
     if _try_export_pdf_with_weasyprint(html, output_pdf):
         return output_pdf
 
-    # لو ما فيه WeasyPrint، جرّب pdfkit
+    # نحاول PDF بــ pdfkit
     if _try_export_pdf_with_pdfkit(html, output_pdf):
         return output_pdf
 
-    # لو الاثنين فشلوا، رجّع بس html
+    # لو فشلوا الاثنين، نرجّع html بس
     return "final_report.html"
