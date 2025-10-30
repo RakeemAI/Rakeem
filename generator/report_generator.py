@@ -4,7 +4,7 @@ import os
 import pandas as pd
 from typing import Dict, List, Optional
 from jinja2 import Environment, FileSystemLoader, select_autoescape
-from weasyprint import HTML
+#from weasyprint import HTML
 
 def _sar(v):
     try:
