@@ -1,0 +1,33 @@
+
+  You can now view your Streamlit app in your browser.
+
+  URL: http://0.0.0.0:8501
+
+[31m──[0m[31m────────────────────────[0m[31m [0m[1;31mTraceback [0m[1;2;31m(most recent call last)[0m[31m [0m[31m─────────────────────────[0m[31m──[0m
+[31m [0m [2;33m/usr/local/lib/python3.12/dist-packages/streamlit/runtime/scriptrunner/[0m[1;33mexec_code.py[0m: [31m [0m
+[31m [0m [94m129[0m in [92mexec_func_with_error_handling[0m                                                 [31m [0m
+[31m [0m                                                                                      [31m [0m
+[31m [0m [2;33m/usr/local/lib/python3.12/dist-packages/streamlit/runtime/scriptrunner/[0m[1;33mscript_runner[0m [31m [0m
+[31m [0m [1;33m.py[0m:[94m669[0m in [92mcode_to_exec[0m                                                              [31m [0m
+[31m [0m                                                                                      [31m [0m
+[31m [0m [2;33m/content/Rakeem/ui/[0m[1;33mapp.py[0m:[94m17[0m in [92m<module>[0m                                             [31m [0m
+[31m [0m                                                                                      [31m [0m
+[31m [0m   [2m 14 [0m[94mfrom[0m[90m [0m[4;96mengine[0m[4;96m.[0m[4;96mvalidate[0m[90m [0m[94mimport[0m validate_columns                                   [31m [0m
+[31m [0m   [2m 15 [0m[94mfrom[0m[90m [0m[4;96mengine[0m[4;96m.[0m[4;96mcompute_core[0m[90m [0m[94mimport[0m compute_core                                   [31m [0m
+[31m [0m   [2m 16 [0m[94mfrom[0m[90m [0m[4;96mengine[0m[4;96m.[0m[4;96mtaxes[0m[90m [0m[94mimport[0m compute_vat, compute_zakat                            [31m [0m
+[31m [0m [31m❱ [0m 17 [1;4;94mfrom[0m[1;4;90m [0m[1;4;96mgenerator[0m[1;4;96m.[0m[1;4;96mreport_generator[0m[1;4;90m [0m[1;4;94mimport[0m[1;4m generate_financial_report[0m               [31m [0m
+[31m [0m   [2m 18 [0m                                                                               [31m [0m
+[31m [0m   [2m 19 [0m[2m# ========== Streamlit Config ==========[0m                                       [31m [0m
+[31m [0m   [2m 20 [0mst.set_page_config(page_title=[33m"[0m[33mRakeem Dashboard[0m[33m"[0m, layout=[33m"[0m[33mwide[0m[33m"[0m)               [31m [0m
+[31m [0m                                                                                      [31m [0m
+[31m [0m [2;33m/content/Rakeem/generator/[0m[1;33mreport_generator.py[0m:[94m7[0m in [92m<module>[0m                          [31m [0m
+[31m [0m                                                                                      [31m [0m
+[31m [0m   [2m 4 [0m[94mimport[0m[90m [0m[4;96mpandas[0m[90m [0m[94mas[0m[90m [0m[4;96mpd[0m                                                             [31m [0m
+[31m [0m   [2m 5 [0m[94mfrom[0m[90m [0m[4;96mtyping[0m[90m [0m[94mimport[0m Dict, List, Optional                                         [31m [0m
+[31m [0m   [2m 6 [0m[94mfrom[0m[90m [0m[4;96mjinja2[0m[90m [0m[94mimport[0m Environment, FileSystemLoader, select_autoescape             [31m [0m
+[31m [0m [31m❱ [0m 7 [1;4;94mfrom[0m[1;4;90m [0m[1;4;96mweasyprint[0m[1;4;90m [0m[1;4;94mimport[0m[1;4m HTML[0m                                                     [31m [0m
+[31m [0m   [2m 8 [0m                                                                                [31m [0m
+[31m [0m   [2m 9 [0m[94mdef[0m[90m [0m[92m_sar[0m(v):                                                                    [31m [0m
+[31m [0m   [2m10 [0m[2m│   [0m[94mtry[0m:                                                                        [31m [0m
+[31m────────────────────────────────────────────────────────────────────────────────────────[0m
+[1;91mModuleNotFoundError: [0mNo module named [32m'weasyprint'[0m
