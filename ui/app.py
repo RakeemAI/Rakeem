@@ -414,17 +414,16 @@ if user_q:
 
     st.rerun()
 
-# ========== PDF Export ==========
+# ====== PDF / HTML Report Export ======
 st.sidebar.markdown("---")
-st.sidebar.subheader("📄 تقرير PDF")
+st.sidebar.subheader("📄 تصدير التقرير")
 
 net_vat = compute_vat(df)
 zakat_due = compute_zakat(df)
 
-if st.sidebar.button("توليد التقرير (PDF)"):
+if st.sidebar.button("توليد التقرير"):
     try:
-        # ✅ استخدم نفس company_name اللي سبق واستنتجناه فوق
-        pdf_path = generate_financial_report(
+        report_path = generate_financial_report(
             company_name=company_name,
             report_title=f"التقرير المالي الشامل — {company_name}",
             metrics={
@@ -440,17 +439,25 @@ if st.sidebar.button("توليد التقرير (PDF)"):
                 "المصروفات": df[["date", "expenses"]],
                 "الأرباح": df[["date", "profit"]],
             },
-            recommendations=[
-                "حافظ على نسبة الربح الحالية.",
-                "راقب المصروفات المتزايدة في الأشهر القادمة.",
-            ],
             template_path="generator/report_template.html",
             output_pdf="financial_report.pdf",
         )
 
-        with open(pdf_path, "rb") as fh:
-            st.sidebar.download_button("⬇ تحميل التقرير", fh, "financial_report.pdf", "application/pdf")
-        st.sidebar.success(f"تم توليد التقرير بنجاح لشركة {company_name}.")
+        # يحدد نوع الملف الناتج تلقائيًا
+        if str(report_path).lower().endswith(".pdf"):
+            mime = "application/pdf"
+            label = "⬇ تحميل التقرير (PDF)"
+            download_name = "financial_report.pdf"
+            st.sidebar.success(f"تم إنشاء تقرير PDF لشركة {company_name}.")
+        else:
+            mime = "text/html"
+            label = "⬇ تحميل التقرير (HTML)"
+            download_name = "final_report.html"
+            st.sidebar.warning("تم إنشاء التقرير كـ HTML لأن تبعيات WeasyPrint غير متوفرة حالياً.")
+
+        with open(report_path, "rb") as fh:
+            st.sidebar.download_button(label, fh, download_name, mime)
+
     except Exception as e:
         st.sidebar.error(f"فشل إنشاء التقرير: {e}")
 
