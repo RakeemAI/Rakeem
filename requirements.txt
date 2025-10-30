@@ -12,5 +12,3 @@ faiss-cpu>=1.8
 prophet>=1.1
 pyngrok
 plotly>=5.22
-jinja2
-pdfkit
