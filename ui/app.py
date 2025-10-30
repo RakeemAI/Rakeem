@@ -422,6 +422,34 @@ zakat_due = compute_zakat(df)
 
 if st.sidebar.button("توليد التقرير"):
     try:
+        # نبني توصيات ديناميكية بناءً على الأرقام الحالية
+        dyn_recs = []
+
+        profit_margin = 0
+        if rev > 0:
+            profit_margin = profit / rev  # نسبة الربح إلى الإيراد
+
+        # 1) لو المصروفات عالية
+        if exp > rev * 0.7:
+            dyn_recs.append("خفض المصروفات التشغيلية التي زادت عن 70٪ من الإيرادات خلال الفترة.")
+        else:
+            dyn_recs.append("استمر في ضبط المصروفات التشغيلية عند مستوياتها الحالية.")
+
+        # 2) لو الربح ضعيف
+        if profit_margin < 0.2:
+            dyn_recs.append("ارفع هوامش الربح بمراجعة التسعير أو تحسين مزيج المنتجات.")
+        else:
+            dyn_recs.append("حافظ على مستوى هوامش الربح الحالي مع مراقبة أي تراجع مفاجئ.")
+
+        # 3) لو التدفق النقدي ضعيف
+        if cashflow < 0:
+            dyn_recs.append("حسّن دورة التحصيل النقدي وتقصير آجال المدينين لتحسين التدفق النقدي.")
+        else:
+            dyn_recs.append("استثمر جزءًا من التدفق النقدي الإيجابي في أنشطة توليد الإيرادات.")
+
+        # 4) توصية عامة من الزكاة/الضريبة
+        dyn_recs.append("التأكد من مطابقة الإقرارات الضريبية والزكوية للبيانات المالية المعتمدة.")
+
         report_path = generate_financial_report(
             company_name=company_name,
             report_title=f"التقرير المالي الشامل — {company_name}",
@@ -433,6 +461,8 @@ if st.sidebar.button("توليد التقرير"):
                 "net_vat": float(net_vat),
                 "zakat_due": float(zakat_due),
             },
+            # ← هنا صارت توصيات ديناميكية
+            recommendations=dyn_recs,
             data_tables={
                 "الإيرادات": df[["date", "revenue"]],
                 "المصروفات": df[["date", "expenses"]],
