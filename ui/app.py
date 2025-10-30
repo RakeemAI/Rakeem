@@ -417,7 +417,6 @@ if user_q:
 # ====== PDF / HTML Report Export ======
 st.sidebar.markdown("---")
 st.sidebar.subheader("📄 تصدير التقرير")
-
 net_vat = compute_vat(df)
 zakat_due = compute_zakat(df)
 
@@ -443,20 +442,19 @@ if st.sidebar.button("توليد التقرير"):
             output_pdf="financial_report.pdf",
         )
 
-        # يحدد نوع الملف الناتج تلقائيًا
         if str(report_path).lower().endswith(".pdf"):
             mime = "application/pdf"
             label = "⬇ تحميل التقرير (PDF)"
-            download_name = "financial_report.pdf"
+            name = "financial_report.pdf"
             st.sidebar.success(f"تم إنشاء تقرير PDF لشركة {company_name}.")
         else:
             mime = "text/html"
             label = "⬇ تحميل التقرير (HTML)"
-            download_name = "final_report.html"
-            st.sidebar.warning("تم إنشاء التقرير كـ HTML لأن تبعيات WeasyPrint غير متوفرة حالياً.")
+            name = "final_report.html"
+            st.sidebar.warning("تم إنشاء التقرير كـ HTML لأن تبعيات PDF غير متوفرة على الاستضافة.")
 
         with open(report_path, "rb") as fh:
-            st.sidebar.download_button(label, fh, download_name, mime)
+            st.sidebar.download_button(label, fh, name, mime)
 
     except Exception as e:
         st.sidebar.error(f"فشل إنشاء التقرير: {e}")

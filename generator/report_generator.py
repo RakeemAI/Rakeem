@@ -5,20 +5,15 @@ import pandas as pd
 from typing import Dict, List, Optional
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 
-
 def _sar(v):
-    """تنسيق الأرقام بالريال السعودي."""
     try:
         return f"{float(v):,.0f} ريال"
     except Exception:
         return "—"
 
-
 def _df_to_html(name: str, df: pd.DataFrame) -> str:
-    """تحويل DataFrame إلى جدول HTML بعنوان عربي أنيق."""
     if df is None or df.empty:
         return ""
-
     rename_map = {
         "date": "التاريخ",
         "revenue": "الإيرادات",
@@ -28,7 +23,6 @@ def _df_to_html(name: str, df: pd.DataFrame) -> str:
         "cashflow": "التدفق النقدي",
     }
     df = df.rename(columns={c: rename_map.get(c, c) for c in df.columns})
-
     title_html = (
         "<h2 style='color:#002147;font-size:22px;margin:15px 0 10px;"
         "padding-bottom:8px;border-bottom:2px solid #ffcc66;font-weight:700;'>"
@@ -36,7 +30,6 @@ def _df_to_html(name: str, df: pd.DataFrame) -> str:
     )
     table_html = df.to_html(classes='table', index=False, border=0)
     return title_html + table_html
-
 
 def generate_financial_report(
     *,
@@ -48,11 +41,6 @@ def generate_financial_report(
     template_path: str = "generator/report_template.html",
     output_pdf: str = "financial_report.pdf",
 ):
-    """
-    يولّد تقريرًا ماليًا: يحفظ دائمًا HTML، ويحاول إنشاء PDF إن توفرت WeasyPrint.
-    يعيد مسار الملف الناتج (PDF أو HTML).
-    """
-
     try:
         from weasyprint import HTML
         _has_weasy = True
