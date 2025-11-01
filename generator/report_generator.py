@@ -4,13 +4,6 @@ import pandas as pd
 from typing import Dict, List, Optional
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 
-# نحاول استيراد WeasyPrint — لو غير متاحة نكمل بدونها
-try:
-    from weasyprint import HTML
-except ModuleNotFoundError:
-    HTML = None
-
-
 # === Utilities ===
 def _sar(v):
     """صيغة ريال سعودية منسقة"""
@@ -18,7 +11,6 @@ def _sar(v):
         return f"{float(v):,.0f} ريال"
     except Exception:
         return "—"
-
 
 def _df_to_html(name: str, df: pd.DataFrame) -> str:
     """تحويل جدول Pandas إلى HTML منسق"""
@@ -41,7 +33,6 @@ def _df_to_html(name: str, df: pd.DataFrame) -> str:
     table_html = df.to_html(classes='table', index=False, border=0)
     return title_html + table_html
 
-
 # === Core Generator ===
 def generate_financial_report(
     *,
@@ -54,6 +45,15 @@ def generate_financial_report(
     output_pdf: str = "financial_report.pdf",
 ):
     """ينشئ تقرير مالي PDF أو HTML حسب توفر المكتبات"""
+
+    # ⚠️ استيراد كسول لـ WeasyPrint داخل الدالة وبالتقاط كل الأخطاء
+    try:
+        from weasyprint import HTML  # قد يرمي OSError إذا Pango/Cairo غير متوفرة
+        _has_weasy = True
+    except Exception as e:
+        print(f"[تنبيه] تعذّر تحميل WeasyPrint: {e}")
+        HTML = None
+        _has_weasy = False
 
     # إعداد بيئة القالب
     env = Environment(
@@ -86,13 +86,13 @@ def generate_financial_report(
         recommendations=recommendations or [],
     )
 
-    # نحفظ نسخة HTML دائمًا (احتياط)
+    # نحفظ HTML دائمًا
     html_path = "final_report.html"
     with open(html_path, "w", encoding="utf-8") as f:
         f.write(html)
 
-    # نحاول توليد PDF فقط لو WeasyPrint متاحة
-    if HTML:
+    # نحاول PDF فقط لو WeasyPrint تعمل
+    if _has_weasy and HTML is not None:
         try:
             HTML(string=html, base_url=os.getcwd()).write_pdf(output_pdf)
             return output_pdf
@@ -100,5 +100,5 @@ def generate_financial_report(
             print(f"[تحذير] فشل توليد PDF عبر WeasyPrint: {e}")
             return html_path
     else:
-        print("[تنبيه] مكتبة WeasyPrint غير مثبتة، سيتم حفظ التقرير بصيغة HTML فقط.")
+        print("[تنبيه] WeasyPrint غير متاحة، تم حفظ التقرير كـ HTML.")
         return html_path
