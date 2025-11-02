@@ -1,39 +1,38 @@
-# Rakeem: AI-powered Arabic Financial Assistant
-# Project Overview
+<h1 style="color:#3498db;">Project Overview</h1>
 
 Rakeem is an intelligent financial agent that serves medium and emerging businesses in Saudi Arabia and integrates three main components:
 
-## Core Financial Analysis Model
-Analyzes company financial data (from Excel/CSV files) using Python libraries to provide accurate calculations of profitability, cash flow, Zakat, and taxes.
+1. <strong style="color:#3498db;">Core Financial Analysis Model</strong>  
+   Analyzes company financial data (from Excel/CSV files) using Python libraries to provide accurate calculations of profitability, cash flow, Zakat, and taxes.
 
-## Retrieval-Augmented Generation (RAG) and Prediction
-Utilizes a RAG system (with a FAISS index) for precise retrieval of legal and financial data from ZATCA documents, along with Holt models to provide reliable financial forecasts for future business performance.
+2. <strong style="color:#3498db;">Retrieval-Augmented Generation (RAG) and Prediction</strong>  
+   Utilizes a RAG system (with a FAISS index) for precise retrieval of legal and financial data from ZATCA documents, along with Holt models to provide reliable financial forecasts for future business performance.
 
-## Large Language Model Integration (LLM Integration)
-Employs large language models (LLMs) to connect digital analysis and legal data retrieval, delivering clear explanations and practical recommendations in Arabic.
+3. <strong style="color:#3498db;">Large Language Model Integration (LLM Integration)</strong>  
+   Employs large language models (LLMs) to connect digital analysis and legal data retrieval, delivering clear explanations and practical recommendations in Arabic.
 
 ---
 
-## Additional Features
+<h2 style="color:#3498db;">Additional Features</h2>
 
 - **Interactive Chatbot:** Allows users to ask financial questions directly and receive accurate, supported answers.  
 - **Financial Report Generation:** Users can download comprehensive financial reports (PDF) ready for printing or presentation.
 
 ---
 
-## Logo
+<h2 style="color:#3498db;">Logo</h2>
 
-![Rakeem Logo](rakeem_logo.png)
+![Rakeem Logo](rakeem_logo%20%281%29.png)
 
 ---
 
-## What “Rakeem” Means
+<h2 style="color:#3498db;">What “Rakeem” Means</h2>
 
 “Rakeem” is an authentic Arabic name that refers to the act of accumulating and stacking things tightly on top of each other, giving them stability and strength—like a mountain. We chose this name because our platform collects knowledge and data in an organized and precise way, providing a reliable basis of intelligence and analysis that supports decision-making and helps grow medium and emerging businesses.
 
 ---
 
-## User Journey through Rakeem Agent
+<h2 style="color:#3498db;">User Journey through Rakeem Agent</h2>
 
 The Rakeem system is designed to simplify financial management through three main interconnected stages:
 
@@ -54,7 +53,7 @@ The Rakeem system is designed to simplify financial management through three mai
 
 ---
 
-## Expected Questions about Rakeem
+<h2 style="color:#3498db;">Expected Questions about Rakeem</h2>
 
 ### 1. What distinguishes Rakeem from current market offerings?
 There is currently no integrated Intelligent Agent combining four essential features tailored for the Saudi market: direct financial analysis of user data, reliable financial prediction, chatbot consultation, and certified report generation. Our competitive edge lies in:  
@@ -70,7 +69,7 @@ Trust in Rakeem is built on technical security and complete data transparency:
 
 ---
 
-## Project Objectives
+<h2 style="color:#3498db;">Project Objectives</h2>
 
 Rakeem's objectives are focused on achieving technical maturity (short-term) and strategic expansion (long-term):
 
@@ -86,34 +85,32 @@ Rakeem's objectives are focused on achieving technical maturity (short-term) and
 
 ---
 
-## Execution Plan & Methodology
+<h2 style="color:#3498db;">Execution Plan & Methodology</h2>
 
 We adopted a Collaborative Learning methodology throughout the project execution, where all team members worked jointly on every task. This ensured the acquisition of integrated expertise across all development aspects. Approximately 90% of this plan has been successfully completed, following the sequence below:
 
 ### Key Execution Steps
 
-#### Data Collection and Preparation
-- **Operational Data:** Securing and preparing a set of hypothetical operational financial data for SMEs (Excel/CSV) for analysis and calculation purposes.  
-- **Knowledge Data:** Collecting and cleaning official ZATCA regulatory documents to establish the local legal knowledge base.
+1. **Data Collection and Preparation**  
+   - **Operational Data:** Securing and preparing a set of hypothetical operational financial data for SMEs (Excel/CSV) for analysis and calculation purposes.  
+   - **Knowledge Data:** Collecting and cleaning official ZATCA regulatory documents to establish the local legal knowledge base.
 
-#### Developing the Financial Engine and RAG System
-- Designing the Python Financial Engine to execute precise equations for calculating Profitability, Cash Flow, Zakat, and Taxes.  
-- Building the highly efficient retrieval index using the FAISS library to enable rapid access to ZATCA rules.
+2. **Developing the Financial Engine and RAG System**  
+   - Designing the Python Financial Engine to execute precise equations for calculating Profitability, Cash Flow, Zakat, and Taxes.  
+   - Building the highly efficient retrieval index using the FAISS library to enable rapid access to ZATCA rules.
 
-#### Integrating the Large Language Model and Chatbot Activation
-- Developing the RAG module to link user inquiries in Arabic with the retrieved legal rules (FAISS).  
-- Instructing the Large Language Model (LLM) to combine numerical analysis with legal interpretation in a clear and professional manner.
+3. **Integrating the Large Language Model and Chatbot Activation**  
+   - Developing the RAG module to link user inquiries in Arabic with the retrieved legal rules (FAISS).  
+   - Instructing the Large Language Model (LLM) to combine numerical analysis with legal interpretation in a clear and professional manner.
 
-#### Forecasting and Strategic Recommendations
-- Building and training the Prediction models (Holt) for future financial performance.  
-- Developing algorithms to provide automated recommendations based on analysis, forecasting, and legal compliance results.
+4. **Forecasting and Strategic Recommendations**  
+   - Building and training the Prediction models (Holt) for future financial performance.  
+   - Developing algorithms to provide automated recommendations based on analysis, forecasting, and legal compliance results.
 
-#### Interface Design and Report Generation
-- Developing the final graphical user interface (Dashboard) using Streamlit.  
-- Activating the function to generate comprehensive, downloadable PDF reports that compile all analytical and predictive outputs.
+5. **Interface Design and Report Generation**  
+   - Developing the final graphical user interface (Dashboard) using Streamlit.  
+   - Activating the function to generate comprehensive, downloadable PDF reports that compile all analytical and predictive outputs.
 
-#### System Testing and Necessary Enhancements
-- Conducting extensive System Testing and User Acceptance Testing for the interface to ensure accuracy and performance.  
-- Applying necessary improvements to model accuracy and response speed in preparation for launch.
-
-
+6. **System Testing and Necessary Enhancements**  
+   - Conducting extensive System Testing and User Acceptance Testing for the interface to ensure accuracy and performance.  
+   - Applying necessary improvements to model accuracy and response speed in preparation for launch.
