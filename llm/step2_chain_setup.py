@@ -2,7 +2,7 @@
 import os
 from dotenv import load_dotenv
 
-# نستخدم حزمة OpenAI الجديدة
+
 from openai import OpenAI
 
 load_dotenv(override=True)
@@ -15,10 +15,10 @@ class LangChainSetup:
     """
     def __init__(self):
         self.api_key = os.getenv("OPENAI_API_KEY")
-        # ✅ ثبّت المودل الافتراضي على gpt-4o-mini
+        
         self.model_name = os.getenv("MODEL_NAME", "gpt-4o-mini")
         self.temperature = float(os.getenv("TEMPERATURE", "0.2"))
-        # ✅ ارفع حد الخرج لمنع القصّ
+        
         self.max_tokens = int(os.getenv("MAX_TOKENS", "6000"))
 
         self.rag_store_path = os.getenv("RAG_STORE_PATH", "./data")
@@ -27,14 +27,14 @@ class LangChainSetup:
         self.client: OpenAI | None = None
         self.memory = []
         self.retriever = None
-        self.documents = []  # عند RAG البسيط
+        self.documents = []  
 
-    # ---------------- LLM ----------------
+    
     def setup_llm(self):
         if not self.api_key:
             print("⚠️ OPENAI_API_KEY غير موجود في .env")
             return False
-        # ✅ عميل OpenAI بصيغته الحديثة
+        
         self.client = OpenAI(api_key=self.api_key)
         print(f"✅ OpenAI جاهز - النموذج: {self.model_name} - max_tokens={self.max_tokens}")
         return True
@@ -43,7 +43,7 @@ class LangChainSetup:
         self.memory = []
         return True
 
-    # ---------------- RAG ----------------
+    
     def setup_retriever(self):
         try:
             from langchain_community.vectorstores import FAISS
@@ -123,7 +123,7 @@ class LangChainSetup:
             print(f"⚠️ خطأ في الاسترجاع: {e}")
             return None
 
-    # ---------------- سؤال فعلي للـ LLM ----------------
+    
     def ask_question_real(self, prompt, context=None):
         if not self.client:
             return {"answer": "خطأ: LLM غير مهيأ", "source_documents": []}
@@ -141,12 +141,12 @@ class LangChainSetup:
                 messages.extend(self.memory[-4:])
             messages.append({"role": "user", "content": full_prompt})
 
-            # ✅ استدعاء بصيغة OpenAI الحديثة
+            
             resp = self.client.chat.completions.create(
                 model=self.model_name,
                 messages=messages,
                 temperature=self.temperature,
-                max_tokens=self.max_tokens,  # رفعناها لمنع القصّ
+                max_tokens=self.max_tokens,  
             )
             answer = resp.choices[0].message.content or ""
 
