@@ -28,10 +28,10 @@ def _entity_candidates() -> List[str]:
 
 def _to_month_end_index(dt_like: pd.Series) -> pd.DatetimeIndex:
     dt = pd.to_datetime(dt_like, errors="coerce")
-    # تحويل لأي تاريخ إلى نهاية الشهر (نُبقي تحويل الفترة كما هو)
-    dt = pd.DatetimeIndex(dt).to_period("M").to_timestamp("M")  # نهاية الشهر
+    
+    dt = pd.DatetimeIndex(dt).to_period("M").to_timestamp("M")  
     idx = pd.DatetimeIndex(dt, name="date")
-    # ✅ استخدم التردد الجديد MonthEnd
+    
     idx.freq = "ME"
     return idx
 
@@ -48,13 +48,13 @@ def _prep_monthly_series(df: pd.DataFrame, date_col: str, value_col: str) -> pd.
 
     d = d.drop_duplicates(subset=[date_col], keep="last").set_index(date_col)
 
-    # ✅ استخدم ME بدل M
+    
     d = d.asfreq("ME")
 
     d[value_col] = d[value_col].ffill().fillna(0.0)
 
     y = d[value_col].astype(float)
-    # ✅ استخدم ME بدل M
+    
     y.index = pd.DatetimeIndex(y.index, freq="ME")
     return y
 
@@ -63,13 +63,13 @@ def _forecast_series(y: pd.Series, periods: int = 3) -> pd.Series:
     y = y.dropna()
     if y.size == 0:
         start = pd.Timestamp.today().to_period("M").to_timestamp("M") + pd.offsets.MonthEnd(1)
-        # ✅ استخدم ME بدل M
+        
         idx = pd.date_range(start, periods=periods, freq="ME")
         return pd.Series([0.0] * periods, index=idx)
 
     if y.nunique() <= 1 or y.size < 4:
         last = float(y.iloc[-1])
-        # ✅ استخدم ME بدل M
+        
         idx = pd.date_range(y.index.max() + pd.offsets.MonthEnd(1), periods=periods, freq="ME")
         return pd.Series([last] * periods, index=idx)
 
@@ -77,17 +77,17 @@ def _forecast_series(y: pd.Series, periods: int = 3) -> pd.Series:
         model = ExponentialSmoothing(y, trend="add", damped_trend=True, seasonal=None)
         fit = model.fit(optimized=True, use_brute=True)
         fc = fit.forecast(periods)
-        # ✅ استخدم ME بدل M
+        
         fc.index = pd.DatetimeIndex(fc.index, freq="ME")
         return fc
     except Exception:
         last = float(y.iloc[-1])
-        # ✅ استخدم ME بدل M
+        
         idx = pd.date_range(y.index.max() + pd.offsets.MonthEnd(1), periods=periods, freq="ME")
         return pd.Series([last] * periods, index=idx)
 
 
-# ----------------------------- Public API --------------------------------
+
 
 def build_revenue_forecast(
     df: pd.DataFrame,
