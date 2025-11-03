@@ -10,6 +10,7 @@ REPO_ROOT = os.path.dirname(os.path.dirname(__file__))
 if REPO_ROOT not in sys.path:
     sys.path.insert(0, REPO_ROOT)
 
+from llm.run import RakeemChatEngine, rakeem_engine
 from engine.io import load_excel, load_csv
 from engine.validate import validate_columns
 from engine.compute_core import compute_core
@@ -254,52 +255,19 @@ with st.expander("عرض التنبؤ المالي", expanded=True):
     except Exception as e:
         st.warning(f"تعذر عرض التنبؤ: {e}")
 
-# ========== Chat Section ==========
+
+
+# ====== Chat Section ======
 st.markdown('<div class="sec-title">المحادثة الذكية</div>', unsafe_allow_html=True)
 
-# ========== Company Name Utility ==========
-def infer_company_name(df_raw, df):
-    # نحول كل الأعمدة للأحرف الصغيرة للفحص المرن
-    for col in df_raw.columns:
-        col_l = str(col).strip().lower()
-        if any(k in col_l for k in ["شركة", "company", "organization", "firm", "entity", "name"]):
-            try:
-                # نبحث عن أول قيمة نصية غير فارغة في العمود
-                val = df_raw[col].dropna().astype(str).str.strip().replace({"nan": "", "None": ""}).iloc[0]
-                if val:
-                    return val
-            except Exception:
-                continue
 
-    # محاولة أخرى: إذا في metadata أو أول صف فيه الاسم
-    if "company" in df_raw.index.name.lower() if df_raw.index.name else "":
-        val = str(df_raw.index[0]).strip()
-        if val:
-            return val
-
-    return "شركة غير محددة"
-
-_backend = None
-try:
-    from llm.run import chat_answer as _chain_chat_answer
-    _backend = ("chain", _chain_chat_answer)
-except Exception:
-    try:
-        from llm.simple_backend import answer as _simple_answer
-        _backend = ("simple", _simple_answer)
-    except Exception:
-        st.warning("⚠ لا يوجد باك-إند متاح للشات.")
-        _backend = None
-
-# ====== State Memory ======
+# state
 if "chat_msgs" not in st.session_state:
     st.session_state.chat_msgs = [
-        {"role": "assistant", "content": "مرحبًا! ارفع ملفك المالي ثم اسألني عن الأرباح أو المصروفات أو الأداء العام."}
+        {"role": "assistant", "content": "مرحبًا! ارفع ملفك المالي ثم اسألني عن الأرباح أو المصروفات أو الزكاة أو الالتزامات."}
     ]
-if "chat_context" not in st.session_state:
-    st.session_state.chat_context = {"has_summary": False, "memory": ""}
 
-# ====== Chat UI ======
+# عرض الرسائل
 st.markdown('<div class="chat-wrap">', unsafe_allow_html=True)
 for msg in st.session_state.chat_msgs:
     cls = "assistant" if msg["role"] == "assistant" else "user"
@@ -311,107 +279,22 @@ for msg in st.session_state.chat_msgs:
     """, unsafe_allow_html=True)
 st.markdown('</div>', unsafe_allow_html=True)
 
-# ====== Input ======
-# ====== Input ======
+# إدخال المستخدم
 user_q = st.chat_input("اكتب سؤالك هنا…")
-
 if user_q:
     st.session_state.chat_msgs.append({"role": "user", "content": user_q})
-    mode, fn = _backend if _backend else (None, None)
-    ctx = st.session_state.chat_context
 
     try:
-        # ✅ طلب المصادر فقط
-        if any(w in user_q.lower() for w in ["مصادر", "المراجع", "source", "sources"]):
-            sources_html = """
-<b>المصادر الرسمية:</b>
-<ul>
-<li>الهيئة الزكوية والضريبية والجمارك (ZATCA)</li>
-<li>البيانات المالية المرفوعة من المستخدم</li>
-<li>لوائح ضريبة القيمة المضافة الرسمية</li>
-</ul>
-"""
-            st.session_state.chat_msgs.append({"role": "assistant", "content": sources_html})
-        # ✅ أول سؤال فقط → ملخص + شرح + توصيات
-        elif not ctx.get("has_summary", False):
-            company_name = infer_company_name(df_raw, df)
-            summary_html = f"""
-<b>التحليل المالي للشركة: {company_name}</b><br><br>            
-<b>ملخص مالي مختصر:</b>
-<ul>
-<li>إجمالي الإيرادات: {rev:,.0f} ريال</li>
-<li>إجمالي المصروفات: {exp:,.0f} ريال</li>
-<li>صافي الربح: {profit:,.0f} ريال</li>
-<li>التدفق النقدي: {cashflow:,.0f} ريال</li>
-</ul>
-"""
-            analysis = "الأداء المالي العام مستقر، الإيرادات تغطي المصروفات بنسبة جيدة مما يعكس كفاءة تشغيلية معتدلة."
-            recs = [
-                "راقب المصروفات التشغيلية بدقة شهرية.",
-                "اعمل على تحسين دورة التحصيل النقدي.",
-                "راجع هوامش الربح في الفروع ذات الأداء الأدنى."
-            ]
-            rec_html = "<ul>" + "".join(f"<li>{r}</li>" for r in recs) + "</ul>"
-            reply = f"{summary_html}<b>شرح مختصر:</b><br>{analysis}<br><br><b>توصيات:</b>{rec_html}"
-            st.session_state.chat_msgs.append({"role": "assistant", "content": reply})
-
-            ctx["has_summary"] = True
-            ctx["memory"] = user_q
-
-        # ✅ باقي الأسئلة → شرح + توصيات فقط
-        else:
-            prev_user, prev_assistant = "", ""
-            for msg in reversed(st.session_state.chat_msgs):
-                if msg["role"] == "assistant" and not prev_assistant:
-                    prev_assistant = msg["content"]
-                elif msg["role"] == "user" and not prev_user:
-                    prev_user = msg["content"]
-                if prev_user and prev_assistant:
-                    break
-
-            context_snippet = f"""
-سؤال سابق: {prev_user}
-إجابة سابقة: {prev_assistant}
-السؤال الجديد: {user_q}
-
-الرد المطلوب: شرح مختصر + توصيات فقط.
-❌ لا تذكر الملخص المالي إطلاقًا.
-❌ لا تذكر مقتطفات أو مصادر أو روابط أو عناصر meta مثل topic / answer / question.
-الرد يجب أن يكون واضحًا ومبنيًا على البيانات المالية فقط.
-"""
-            if mode:
-                ans, _ = fn(context_snippet, df=df)
-            else:
-                ans = "تم تحليل سؤالك بناءً على المحادثة السابقة."
-
-            clean_lines = []
-            for line in ans.splitlines():
-                line_strip = line.strip().lower()
-                if any(word in line_strip for word in [
-                    "ملخص", "summary", "topic", "question", "answer", "context",
-                    "source", "sources", "extract", "snippet", "meta", "مقتطف", "مصدر","revenue", "expenses","profit","cash flow", "period", "الفترة", "التدفق النقدي", "صافي الربح" , "إجمالي المصروفات" ,"إجمالي الإيرادات"
-                ]):
-                    continue
-                if re.match(r"^\s*(\{|\}|\[|\])", line_strip):
-                    continue
-                if "http" in line_strip or "www." in line_strip:
-                    continue
-                clean_lines.append(line)
-
-            clean_lines = [line.replace("الشرح المختصر", "<b>الشرح المختصر</b>") for line in clean_lines]
-            ans_clean = "\n".join(clean_lines).strip()
-            if not ans_clean:
-                ans_clean = "تمت معالجة سؤالك بنجاح بناءً على البيانات المالية المتاحة."
-
-            st.session_state.chat_msgs.append({"role": "assistant", "content": ans_clean})
-            ctx["memory"] = context_snippet
-
+        res = rakeem_engine.answer(
+            user_q,
+            df=df,
+            company_name=company_name,
+        )
+        html_reply = res["html"]
     except Exception as e:
-        st.session_state.chat_msgs.append({
-            "role": "assistant",
-            "content": f"⚠ حدث خطأ أثناء التحليل: {e}"
-        })
+        html_reply = f"⚠ حدث خطأ أثناء تحليل السؤال: {e}"
 
+    st.session_state.chat_msgs.append({"role": "assistant", "content": html_reply})
     st.rerun()
 
 # ====== PDF / HTML Report Export ======
@@ -488,4 +371,3 @@ if st.sidebar.button("توليد التقرير"):
 
     except Exception as e:
         st.sidebar.error(f"فشل إنشاء التقرير: {e}")
-
