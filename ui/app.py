@@ -6,7 +6,7 @@ import plotly.graph_objects as go
 import streamlit as st
 
 # ========== Imports ==========
-REPO_ROOT = os.path.dirname(os.path.dirname(_file_))
+REPO_ROOT = os.path.dirname(os.path.dirname(__file__))
 if REPO_ROOT not in sys.path:
     sys.path.insert(0, REPO_ROOT)
 
