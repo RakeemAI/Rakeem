@@ -6,7 +6,7 @@ import plotly.graph_objects as go
 import streamlit as st
 
 # ========== Imports ==========
-REPO_ROOT = os.path.dirname(os.path.dirname(__file__))
+REPO_ROOT = os.path.dirname(os.path.dirname(_file_))
 if REPO_ROOT not in sys.path:
     sys.path.insert(0, REPO_ROOT)
 
@@ -138,11 +138,7 @@ html, body, [class*="css"] {{
 }}
 </style>
 """, unsafe_allow_html=True)
-# إصلاح عرض HTML في Streamlit Cloud
-st.markdown(
-    "<style>iframe, .stMarkdown div, .msg-body {overflow: visible !important; white-space: normal !important;}</style>",
-    unsafe_allow_html=True
-)
+
 # ========== Utility ==========
 def sar(x): return f"{float(x):,.0f} ريال" if pd.notna(x) else "—"
 
@@ -275,16 +271,12 @@ if "chat_msgs" not in st.session_state:
 st.markdown('<div class="chat-wrap">', unsafe_allow_html=True)
 for msg in st.session_state.chat_msgs:
     cls = "assistant" if msg["role"] == "assistant" else "user"
-    content = msg["content"]
-    st.markdown(
-        f"""
-        <div class="chat-bubble {cls}">
-            <div class="role-label">{'المساعد' if cls=='assistant' else 'أنت'}</div>
-            <div class="msg-body">{content}</div>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
+    st.markdown(f"""
+    <div class="chat-bubble {cls}">
+        <div class="role-label">{'المساعد' if cls=='assistant' else 'أنت'}</div>
+        <div class="msg-body">{msg['content']}</div>
+    </div>
+    """, unsafe_allow_html=True)
 st.markdown('</div>', unsafe_allow_html=True)
 
 # إدخال المستخدم
