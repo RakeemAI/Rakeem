@@ -15,3 +15,5 @@ plotly>=5.22
 weasyprint>=59.0
 jinja2
 statsmodels>=0.14
+langchain-community>=0.2
+langchain-openai>=0.1
