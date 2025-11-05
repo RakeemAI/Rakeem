@@ -10,7 +10,7 @@ REPO_ROOT = os.path.dirname(os.path.dirname(__file__))
 if REPO_ROOT not in sys.path:
     sys.path.insert(0, REPO_ROOT)
 
-from llm.run import RakeemChatEngine, rakeem_engine
+from llm.run import answer_question
 from engine.io import load_excel, load_csv
 from engine.validate import validate_columns
 from engine.compute_core import compute_core
@@ -289,23 +289,30 @@ for msg in st.session_state.chat_msgs:
     """, unsafe_allow_html=True)
 st.markdown('</div>', unsafe_allow_html=True)
 
-# إدخال المستخدم
+# إدخال المستخدم (Chat Input)
 user_q = st.chat_input("اكتب سؤالك هنا…")
+
 if user_q:
     st.session_state.chat_msgs.append({"role": "user", "content": user_q})
 
     try:
-        res = rakeem_engine.answer(
-            user_q,
-            df=df,
-            company_name=company_name,
-        )
-        html_reply = res["html"]
+        with st.spinner("🔎 جاري البحث في قاعدة المعرفة..."):
+            answer, sources = answer_question(user_q)
+        reply_html = answer
+        if sources:
+            reply_html += "<br><br><b>📚 المصادر:</b><ul>"
+            for t, u in sources:
+                if u:
+                    reply_html += f"<li><a href='{u}' target='_blank'>{t}</a></li>"
+                else:
+                    reply_html += f"<li>{t}</li>"
+            reply_html += "</ul>"
     except Exception as e:
-        html_reply = f"⚠ حدث خطأ أثناء تحليل السؤال: {e}"
+        reply_html = f"⚠ حدث خطأ أثناء الإجابة: {e}"
 
-    st.session_state.chat_msgs.append({"role": "assistant", "content": html_reply})
+    st.session_state.chat_msgs.append({"role": "assistant", "content": reply_html})
     st.rerun()
+
 
 # ====== PDF / HTML Report Export ======
 st.sidebar.markdown("---")
