@@ -3,7 +3,8 @@ import os, json
 from langchain_openai import OpenAIEmbeddings
 from langchain_milvus import Milvus
 from langchain.text_splitter import RecursiveCharacterTextSplitter
-from langchain.docstore.document import Document
+from langchain_core.documents import Document
+
 
 def _env(name: str, default=None):
     import streamlit as st
