@@ -1,10 +1,4 @@
 # llm/step2_chain_setup.py
-# ------------------------------------------------------------
-# Rakeem – LLM + RAG (Milvus Cloud)
-# يحمّل الفهرس تلقائيًا من Milvus، ويبني عند الحاجة من merged_final.json
-# ويعيد RetrievalQA جاهز للإجابة بالعربية مع ذكر المصادر.
-# ------------------------------------------------------------
-
 import os
 
 # نحاول القراءة من st.secrets إذا متاح (على السحابة)
@@ -16,7 +10,7 @@ except Exception:
 
 from langchain_openai import ChatOpenAI, OpenAIEmbeddings
 from langchain_milvus import Milvus
-from langchain.chains import RetrievalQA
+from langchain.chains.retrieval_qa.base import RetrievalQA
 from langchain.prompts import PromptTemplate
 
 # يبني الفهرس تلقائيًا لو ناقص (من ./Rakeem/data/merged_final.json)
