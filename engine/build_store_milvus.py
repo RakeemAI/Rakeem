@@ -2,8 +2,25 @@
 import os, json
 from langchain_openai import OpenAIEmbeddings
 from langchain_milvus import Milvus
-from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain_core.documents import Document
+
+try:
+    from langchain_text_splitters import RecursiveCharacterTextSplitter
+except Exception:
+    # فallback بسيط إذا ما توفّر الباكدج (يمنع الكراش)
+    class RecursiveCharacterTextSplitter:
+        def __init__(self, chunk_size=800, chunk_overlap=120):
+            self.chunk_size = chunk_size
+            self.chunk_overlap = chunk_overlap
+        def split_text(self, text: str):
+            s, o, n = self.chunk_size, self.chunk_overlap, len(text)
+            out, i = [], 0
+            while i < n:
+                end = min(i + s, n)
+                out.append(text[i:end])
+                i = max(end - o, i + 1)
+            return out
+
 
 
 def _env(name: str, default=None):
