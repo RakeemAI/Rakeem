@@ -17,3 +17,6 @@ jinja2
 statsmodels>=0.14
 langchain-community>=0.2
 langchain-openai>=0.1
+pymilvus>=2.4
+langchain-milvus>=0.1.0
+

@@ -150,6 +150,16 @@ st.markdown(f"""
 </div>
 """, unsafe_allow_html=True)
 
+# ====== Build RAG Index (Milvus) ======
+try:
+    if st.sidebar.button("🔧 Build RAG index (once)"):
+        from engine.build_store_milvus import build_milvus
+        with st.spinner("Building Milvus index..."):
+            build_milvus()
+        st.sidebar.success("Index built ✅")
+except Exception as e:
+    st.sidebar.error(f"Index build failed: {e}")
+
 # ========== File Upload ==========
 st.sidebar.header("📂 رفع الملف المالي")
 uploaded = st.sidebar.file_uploader("اختر ملف Excel أو CSV", type=["xlsx","xls","csv"])
