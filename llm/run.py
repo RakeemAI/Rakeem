@@ -1,81 +1,69 @@
 # llm/run.py
-# يربط جميع مراحل Rakeem LLM pipeline (Step1 → Step4)
-# ويستدعي قاعدة المعرفة من Milvus بشكل مباشر (قراءة فقط)
 
 import os
-from typing import Tuple, List
-from langchain_openai import ChatOpenAI, OpenAIEmbeddings
-from langchain_milvus import Milvus
+import importlib
 
-# استدعاء الوحدات الأربع (Step1 → Step4)
-# ==== imports (use absolute package path) ====
-from llm.step1_prompt_engineer import build_prompt
-from llm.step2_chain_setup import create_qa_chain
-from llm.step3_context_formatter import extract_sources
-from llm.step4_response_parser import finalize_answer
-
-
-# ======================= الإعداد =======================
-
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
-MODEL_NAME     = os.getenv("MODEL_NAME", "gpt-4o-mini")
-TEMPERATURE    = float(os.getenv("TEMPERATURE", 0.2))
-RAG_TOP_K      = int(os.getenv("RAG_TOP_K", 3))
-
-MILVUS_URI     = os.getenv("MILVUS_URI")     
-MILVUS_TOKEN   = os.getenv("MILVUS_TOKEN")
-MILVUS_COLL    = os.getenv("MILVUS_COLLECTION", "rakeem_rag_v1")
-EMBED_MODEL    = os.getenv("EMBED_MODEL", "text-embedding-3-small")
-
-# =======================================================
-
-def _get_retriever():
-    """إنشاء retriever متصل بقاعدة Milvus"""
-    embeddings = OpenAIEmbeddings(
-        model=EMBED_MODEL,
-        openai_api_key=OPENAI_API_KEY
-    )
-    vector_store = Milvus(
-        embedding_function=embeddings,
-        collection_name=MILVUS_COLL,
-        connection_args={"uri": MILVUS_URI, "token": MILVUS_TOKEN, "secure": True},
-    )
-    return vector_store.as_retriever(search_kwargs={"k": RAG_TOP_K})
-
-
-# =======================================================
-
-def answer_question(question: str, history_text: str) -> Tuple[str, List[tuple]]:
+# --- helper: safe import whether absolute or relative ---
+def _import_attr(module_name: str, attr: str):
     """
-    يستقبل سؤال المستخدم + المحادثة السابقة (history_text)
-    ويرجع الإجابة النهائية + قائمة المصادر المسترجعة من Milvus
+    يحاول يستورد llm.<module_name> أولاً، ولو فشل
+    يحاول الاستيراد النسبي .<module_name> داخل الحزمة الحالية.
     """
+    # مطلق: llm.stepX_...
+    try:
+        mod = importlib.import_module(f"llm.{module_name}")
+        return getattr(mod, attr)
+    except Exception:
+        pass
+    # نسبي: .stepX_... (في حال تشغيله داخل الحزمة)
+    try:
+        mod = importlib.import_module(f".{module_name}", package=__package__)
+        return getattr(mod, attr)
+    except Exception as e:
+        raise ImportError(
+            f"Cannot import {attr} from module {module_name}. "
+            f"Tried both absolute 'llm.{module_name}' and relative '.{module_name}'."
+        ) from e
 
-    # 1️⃣ تهيئة النموذج والمحاور (prompt)
-    llm = ChatOpenAI(
-        model=MODEL_NAME,
-        temperature=TEMPERATURE,
-        openai_api_key=OPENAI_API_KEY,
+# اجلب الدوال من الملفات الأخرى بدون ما نكسر لوضع الاستيراد
+build_prompt       = _import_attr("step1_prompt_engineer", "build_prompt")
+create_qa_chain    = _import_attr("step2_chain_setup", "create_qa_chain")
+extract_sources    = _import_attr("step3_context_formatter", "extract_sources")
+finalize_answer    = _import_attr("step4_response_parser", "finalize_answer")
+
+# ============ الواجهة المستخدمة من app.py ============
+def answer_question(question: str, context: dict) -> dict:
+    """
+    يأخذ سؤال المستخدم والسياق (اسم الشركة، الدولة، مسارات البيانات…) ويُعيد:
+      { "answer": str, "sources": [ {title, url} , ... ] }
+    """
+    # ابنِ البرومبت بناءً على السياق (اسم الشركة، الدولة الافتراضية: السعودية، إلخ)
+    prompt = build_prompt(
+        question=question,
+        company_name=context.get("company_name"),
+        country=context.get("country", "السعودية"),
+        memory=context.get("memory"),  # محادثة سابقة إن وجِدت
     )
 
-    prompt = build_prompt(profile=history_text)
+    # ابنِ السلسلة (LLM + Retriever من Milvus)
+    chain = create_qa_chain(
+        top_k=context.get("rag_top_k", 3),
+        score_threshold=context.get("rag_score_threshold", 0.7),
+    )
 
-    # 2️⃣ إعداد retriever من Milvus
-    retriever = _get_retriever()
+    # شغّل السلسلة على البرومبت
+    result = chain.invoke({"question": prompt})
 
-    # 3️⃣ بناء السلسلة (chain) من step2
-    chain = create_qa_chain(llm, retriever, prompt)
+    # استخرج المصادر بصيغة موحدة
+    sources = extract_sources(result)
 
-    # 4️⃣ تمرير السؤال وتشغيل السلسلة
-    result = chain.invoke({"question": question})
+    # صياغة الإجابة النهائية مع إدماج المصادر
+    answer = finalize_answer(
+        question=question,
+        raw_answer=result.get("answer") or result,
+        sources=sources,
+        company_name=context.get("company_name"),
+        country=context.get("country", "السعودية"),
+    )
 
-    # 5️⃣ استخراج الوثائق (السياق) والمصادر
-    docs = result.get("context", [])
-    answer = result.get("answer", "") or result.get("result", "")
-    sources = extract_sources(docs)
-
-    # 6️⃣ تنسيق الإجابة النهائية مع المصادر
-    final_answer = finalize_answer(answer, sources)
-
-    # 7️⃣ إرجاع النص والمصادر
-    return final_answer, sources
+    return {"answer": answer, "sources": sources}
