@@ -21,6 +21,14 @@ from engine.validate import validate_columns
 from engine.compute_core import compute_core
 from engine.taxes import compute_vat, compute_zakat
 from generator.report_generator import generate_financial_report
+import os
+
+# تحميل الإعدادات من بيئة Streamlit Cloud أو من local .env
+MODEL_NAME = os.environ.get("MODEL_NAME", "gpt-4o-mini")
+MAX_TOKENS = int(os.environ.get("MAX_TOKENS", "6000"))
+TEMPERATURE = float(os.environ.get("TEMPERATURE", "0.2"))
+RAG_TOP_K = int(os.environ.get("RAG_TOP_K", "3"))
+
 # ========== Streamlit Config ==========
 st.set_page_config(page_title="Rakeem Dashboard", layout="wide")
 
