@@ -1,13 +1,13 @@
 # llm/run.py
-# يدير إنشاء السلسلة بشكل كسول + يمرّر تاريخ المحادثة للـLLM
+# يدير إنشاء السلسلة مرة واحدة ويمرّر المحادثة للـLLM
 
 from typing import Tuple, List
 
-_QA = None  # كاش للسلسلة لتجنّب إعادة الإنشاء كل سؤال
+_QA = None  # نخزّن الكائن هنا عشان ما يعاد تحميله كل مرة
 
 
 def _ensure_chain():
-    """ينشئ سلسلة الـQA عند أول استخدام فقط (استيراد كسول)."""
+    """ينشئ سلسلة الـQA عند أول استخدام فقط"""
     global _QA
     if _QA is None:
         from .step2_chain_setup import create_qa_chain
@@ -17,19 +17,21 @@ def _ensure_chain():
 
 def answer_question(user_input: str, history_text: str) -> Tuple[str, List[tuple]]:
     """
-    يستقبل رسالة المستخدم + سجل المحادثة كنص مهيأ،
-    ويُعيد (الإجابة، قائمة المصادر).
+    يستقبل نص المستخدم وتاريخ المحادثة
+    ويعيد (الإجابة، قائمة المصادر)
     """
     qa = _ensure_chain()
-    res = qa.invoke({"input": user_input, "history": history_text})
+    result = qa.invoke({"input": user_input, "history": history_text})
 
-    answer = res.get("answer") or ""
-    sources: List[tuple] = []
-    for d in res.get("context", []) or []:
+    answer = result.get("answer", "")
+    docs = result.get("context", []) or []
+
+    # تنسيق قائمة المصادر
+    sources = []
+    for d in docs:
         meta = getattr(d, "metadata", {}) or {}
-        title = meta.get("title") or meta.get("source") or "غير معروف"
+        title = meta.get("title") or meta.get("source") or "—"
         url = meta.get("url")
         sources.append((title, url))
+
     return answer, sources
-
-

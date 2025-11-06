@@ -16,8 +16,6 @@ from engine.validate import validate_columns
 from engine.compute_core import compute_core
 from engine.taxes import compute_vat, compute_zakat
 from generator.report_generator import generate_financial_report
-from engine.build_store_milvus import build_milvus_if_needed
-
 # ========== Streamlit Config ==========
 st.set_page_config(page_title="Rakeem Dashboard", layout="wide")
 
@@ -177,14 +175,6 @@ def history_as_text() -> str:
         lines.append(f"{prefix}: {text}")
     return "\n".join(lines)
 # ----------------------------------------------------------
-
-
-# ====== Build RAG Index (Milvus) ======
-with st.sidebar:
-    if st.button("Build RAG index (once)"):
-        with st.spinner("Building Milvus index..."):
-            build_milvus_if_needed()
-        st.success("Milvus index is ready ✅")
 
 # ========== File Upload ==========
 st.sidebar.header("📂 رفع الملف المالي")

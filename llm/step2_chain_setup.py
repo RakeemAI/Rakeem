@@ -1,28 +1,24 @@
 # llm/step2_chain_setup.py
-# مستقر + يدعم المحادثة (history) + يستخدم RAG بشكل اختياري
+# RAG (read-only): يتصل بـ Milvus الجاهز ويستخدم history للمحادثة
+# لا يوجد أي بناء/فهرسة هنا
 
 import os
 from typing import Dict, Any, List
 
-# نحاول نقرأ من st.secrets إن توفّر (على ستريمليت كلاود)
+# نحاول نقرأ من st.secrets (ستريمليت كلاود) أو من البيئة محليًا
 try:
     import streamlit as st
     _SECRETS = getattr(st, "secrets", {})
 except Exception:
     _SECRETS = {}
 
-# LangChain (مسارات مستقرة)
 from langchain_openai import ChatOpenAI, OpenAIEmbeddings
 from langchain_milvus import Milvus
 from langchain_core.prompts import PromptTemplate
 from langchain_core.documents import Document
 
-# يبني فهرس Milvus عند الحاجة (من merged_final.json)
-from engine.build_store_milvus import build_milvus_if_needed
-
 
 def _get(name: str, default=None):
-    """قراءة القيم من st.secrets ثم من متغيرات البيئة."""
     if _SECRETS and name in _SECRETS:
         return _SECRETS.get(name, default)
     return os.getenv(name, default)
@@ -43,11 +39,10 @@ def _cfg() -> Dict[str, Any]:
 
 class SimpleQA:
     """
-    سلسلة سؤال/جواب بسيطة:
-      - تستخدم history من واجهة الشات (للتحاور والتذكّر داخل الجلسة)
-      - تحاول الاسترجاع من RAG (Milvus). لو وُجد سياق: تستخدمه وتذكر «المصدر».
-      - لو ما وُجد سياق: تكمّل إجابة عامة بدون اختلاق مصادر.
-    ترجع dict يحوي answer و context (قائمة Documents).
+    سلسلة سؤال/جواب:
+      - تستخدم history من الواجهة (ذاكرة جلسة)
+      - تسترجع من Milvus (إن وجد سياق) وتذكر «المصدر»
+      - لو ما وُجد سياق كافٍ: تكمّل إجابة عامة بدون اختلاق مصادر
     """
     def __init__(self, llm: ChatOpenAI, retriever, prompt: PromptTemplate):
         self.llm = llm
@@ -60,11 +55,11 @@ class SimpleQA:
     def invoke(self, inputs: Dict[str, Any]) -> Dict[str, Any]:
         try:
             q = (inputs.get("input") or inputs.get("question") or "").strip()
-            history = inputs.get("history", "").strip()
+            history = (inputs.get("history") or "").strip()
             if not q:
                 return {"answer": "الرجاء كتابة سؤالك.", "context": []}
 
-            # 1) استرجاع اختياري من RAG
+            # 1) استرجاع اختياري من Milvus
             try:
                 docs = self.retriever.get_relevant_documents(q)
             except Exception:
@@ -72,48 +67,47 @@ class SimpleQA:
 
             ctx = self._fmt_docs(docs) if docs else ""
 
-            # 2) بناء البرومبت (history + context + السؤال)
+            # 2) البرومبت = history + context + السؤال
             prompt_text = self.prompt.format(history=history, context=ctx, question=q)
 
-            # 3) نداء الـLLM
+            # 3) LLM
             msg = self.llm.invoke(prompt_text)
             ans = getattr(msg, "content", str(msg))
 
-            # 4) لو فيه سياق من RAG اضف سطر مصدر (لو عندك metadata)
+            # 4) إلحاق المصادر (من metadata) إذا فيه سياق
             if docs:
-                # جرّب تجميع عناوين/روابط من الميتاداتا
                 srcs = []
                 for d in docs:
                     m = (getattr(d, "metadata", {}) or {})
                     title = m.get("title") or m.get("source")
-                    url = m.get("url")
-                    if title and url:
-                        srcs.append(f"{title} — {url}")
-                    elif title:
+                    if title:
                         srcs.append(title)
-                    elif url:
-                        srcs.append(url)
                 if srcs:
-                    ans += "\n\nالمصدر: " + " | ".join(srcs)
+                    ans += "\n\nالمصدر: " + " | ".join(dict.fromkeys(srcs))  # إزالة التكرار
 
             return {"answer": ans, "context": docs}
-
         except Exception as e:
             return {"answer": f"حدث خطأ غير متوقع: {e}", "context": []}
 
 
 def create_qa_chain() -> SimpleQA:
-    """إنشاء السلسلة: embeddings + Milvus retriever + Prompt + LLM"""
+    """
+    يجهّز: Embeddings + Milvus retriever + Prompt + LLM
+    (قراءة فقط من مجموعة Milvus الموجودة مسبقًا)
+    """
     cfg = _cfg()
 
-    # يبني الفهرس تلقائيًا لو المجموعة فاضية/غير موجودة
-    build_milvus_if_needed()
+    # تحقق مبكّر من الأسرار الأساسية
+    missing = [k for k in ("OPENAI_API_KEY","MILVUS_URI","MILVUS_TOKEN") if not cfg.get(k)]
+    if missing:
+        raise RuntimeError(f"مفاتيح مفقودة: {', '.join(missing)} — أضفها في Streamlit Secrets.")
 
     embeddings = OpenAIEmbeddings(
         model=cfg["EMBEDDING_MODEL"],
         openai_api_key=cfg["OPENAI_API_KEY"],
     )
 
+    # فتح المجموعة الموجودة (لا ننشئ ولا نبني هنا)
     vector_store = Milvus(
         embedding_function=embeddings,
         collection_name=cfg["MILVUS_COLLECTION"],
@@ -123,14 +117,13 @@ def create_qa_chain() -> SimpleQA:
             "secure": True,
         },
     )
-
     retriever = vector_store.as_retriever(search_kwargs={"k": cfg["RAG_TOP_K"]})
 
-    # تعليمات المساعد: حوار + ذاكرة + RAG اختياري + ذكر المصدر عند وجوده
+    # تعليمات: حوار + ذاكرة + RAG اختياري
     system_ar = (
-        "أنت «رقيم» مساعد مالي سعودي. تحاور بالعربية الفصحى."
-        " استخدم المحادثة السابقة لتتذكر حقائق يذكرها المستخدم (مثل اسمه). "
-        "إذا توفر سياق من قاعدة المعرفة فاعتمده للإجابة وأضف سطر «المصدر» في النهاية. "
+        "أنت «رقيم» مساعد مالي عربي. تحاور بالعربية الفصحى، "
+        "واستخدم المحادثة السابقة لتتذكّر حقائق بسيطة يذكرها المستخدم (مثل اسمه). "
+        "إذا توفر سياق من قاعدة المعرفة فاعتمد عليه وألحق «المصدر» في النهاية. "
         "إذا لم يتوفر سياق كافٍ، يجوز الإجابة بالمعرفة العامة بدون اختلاق مصادر."
     )
 
@@ -152,3 +145,4 @@ def create_qa_chain() -> SimpleQA:
     )
 
     return SimpleQA(llm=llm, retriever=retriever, prompt=prompt)
+
