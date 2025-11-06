@@ -151,6 +151,34 @@ st.markdown(f"""
 </div>
 """, unsafe_allow_html=True)
 
+# --- Chat session memory (يُخزّن داخل جلسة المستخدم) ---
+if "chat_history" not in st.session_state:
+    st.session_state.chat_history = []   # [(role, text)]
+if "user_name" not in st.session_state:
+    st.session_state.user_name = None
+
+def add_to_history(role: str, text: str):
+    st.session_state.chat_history.append((role, text))
+
+def detect_and_store_name(text: str):
+    m = re.search(r"(?:أنا|اسمي)\s+([^\s,.!؟]+)", text)
+    if not m:
+        m = re.search(r"(?:my name is|I'm|I am)\s+([A-Za-z\u0600-\u06FF]+)", text, re.I)
+    if m:
+        st.session_state.user_name = m.group(1)
+
+def history_as_text() -> str:
+    """تجميع آخر الرسائل لتغذية الـLLM"""
+    lines = []
+    if st.session_state.user_name:
+        lines.append(f"معلومة: اسم المستخدم هو {st.session_state.user_name}.")
+    for role, text in st.session_state.chat_history[-12:]:
+        prefix = "المستخدم" if role == "user" else "المساعد"
+        lines.append(f"{prefix}: {text}")
+    return "\n".join(lines)
+# ----------------------------------------------------------
+
+
 # ====== Build RAG Index (Milvus) ======
 with st.sidebar:
     if st.button("Build RAG index (once)"):
@@ -288,28 +316,38 @@ for msg in st.session_state.chat_msgs:
 st.markdown('</div>', unsafe_allow_html=True)
 
 # إدخال المستخدم (Chat Input)
-user_q = st.chat_input("اكتب سؤالك هنا…")
+st.subheader("💬 المساعد الذكي (Chat)")
 
-if user_q:
-    st.session_state.chat_msgs.append({"role": "user", "content": user_q})
+user_msg = st.chat_input("اكتب سؤالك هنا…")
+
+if user_msg:
+    add_to_history("user", user_msg)
+    detect_and_store_name(user_msg)
+
+    htext = history_as_text()
 
     try:
-        with st.spinner("🔎 جاري البحث في قاعدة المعرفة..."):
-            answer, sources = answer_question(user_q)
-        reply_html = answer
-        if sources:
-            reply_html += "<br><br><b>📚 المصادر:</b><ul>"
-            for t, u in sources:
-                if u:
-                    reply_html += f"<li><a href='{u}' target='_blank'>{t}</a></li>"
-                else:
-                    reply_html += f"<li>{t}</li>"
-            reply_html += "</ul>"
+        answer, sources = answer_question(user_msg, htext)
     except Exception as e:
-        reply_html = f"⚠ حدث خطأ أثناء الإجابة: {e}"
+        answer, sources = (f"⚠️ حدث خطأ أثناء الإجابة: {e}", [])
 
-    st.session_state.chat_msgs.append({"role": "assistant", "content": reply_html})
-    st.rerun()
+    # ضف الإجابة إلى التاريخ
+    if sources:
+        src_lines = []
+        for title, url in sources:
+            if url:
+                src_lines.append(f"- [{title}]({url})")
+            else:
+                src_lines.append(f"- {title}")
+        answer += "\n\n**المصادر:**\n" + "\n".join(src_lines)
+
+    add_to_history("assistant", answer)
+
+# عرض الرسائل السابقة
+for role, text in st.session_state.chat_history:
+    with st.chat_message("user" if role == "user" else "assistant"):
+        st.markdown(text)
+
 
 
 # ====== PDF / HTML Report Export ======
