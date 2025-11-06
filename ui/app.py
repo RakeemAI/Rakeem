@@ -322,7 +322,7 @@ if user_msg:
     htext = history_as_text()
 
     try:
-        answer, sources = answer_question(user_msg, htext)
+        answer, sources = answer_question(question=user_msg, context=htext)
     except Exception as e:
         answer, sources = (f"⚠️ حدث خطأ أثناء الإجابة: {e}", [])
 
