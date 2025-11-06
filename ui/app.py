@@ -319,17 +319,34 @@ if user_msg:
     add_to_history("user", user_msg)
     detect_and_store_name(user_msg)
 
-    htext = history_as_text()
+    # لو كنت تحفظ هذه المقاطع سابقًا بعد رفع الملف/البناء، خذها من الـsession_state
+    company_snippet   = st.session_state.get("company_snippet", "")     # نبذة الشركة
+    financial_snippet = st.session_state.get("financial_snippet", "")   # ملخص مالي
+    zatca_snippet     = st.session_state.get("zatca_snippet", "")       # نص زكات/ضريبة من RAG أو ثابت
 
     try:
-        answer, sources = answer_question(question=user_msg, context=htext)
+        result = answer_question(
+            user_msg,
+            company_info=company_snippet,
+            financial_data=financial_snippet,
+            zatca_text=zatca_snippet,
+            # retriever=st.session_state.get("retriever"),  # إذا كنت باني الـretriever في step2
+            top_k=RAG_TOP_K,
+            model=MODEL_NAME,
+            temperature=TEMPERATURE,
+            max_tokens=MAX_TOKENS,
+        )
+        answer  = result.get("answer", "")
+        sources = result.get("sources", [])
     except Exception as e:
         answer, sources = (f"⚠️ حدث خطأ أثناء الإجابة: {e}", [])
 
-    # ضف الإجابة إلى التاريخ
+    # ضف المصادر (لاحظ أن الشكل الآن list[dict] وليس tuples)
     if sources:
         src_lines = []
-        for title, url in sources:
+        for s in sources:
+            title = s.get("title", "مصدر")
+            url   = s.get("url", "")
             if url:
                 src_lines.append(f"- [{title}]({url})")
             else:

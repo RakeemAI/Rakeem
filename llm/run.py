@@ -10,6 +10,12 @@ from openai import OpenAI
 
 # --- Step 1: Prompt engineering ---
 from llm.step1_prompt_engineer import ArabicPromptEngineer
+from typing import Any, Optional, List, Dict
+from step2_chain_setup import build_retriever_if_needed  # لو بتبني الـretriever أوتوماتيك
+from engine.config import (  # أو الملف الذي تقرأ منه الـENV
+    MILVUS_URI, MILVUS_TOKEN, MILVUS_COLLECTION, RAG_TOP_K
+)
+
 
 # --- Step 2: Retrieval / Chain setup (Milvus + LangChain) ---
 # ملاحظة: داخل step2 عدّلنا المسارات لواجهات LangChain الحديثة، لذلك هنا نستخدم دوال step2 فقط
