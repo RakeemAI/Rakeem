@@ -8,10 +8,12 @@ from langchain_openai import ChatOpenAI, OpenAIEmbeddings
 from langchain_milvus import Milvus
 
 # استدعاء الوحدات الأربع (Step1 → Step4)
-from .step1_prompt_engineer import build_prompt
-from .step2_chain_setup import create_qa_chain
-from .step3_context_formatter import format_context
-from .step4_response_parser import parse_llm_answer
+# ==== imports (use absolute package path) ====
+from llm.step1_prompt_engineer import build_prompt
+from llm.step2_chain_setup import create_qa_chain
+from llm.step3_context_formatter import extract_sources
+from llm.step4_response_parser import finalize_answer
+
 
 # ======================= الإعداد =======================
 
