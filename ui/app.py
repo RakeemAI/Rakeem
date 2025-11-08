@@ -10,24 +10,12 @@ REPO_ROOT = os.path.dirname(os.path.dirname(__file__))
 if REPO_ROOT not in sys.path:
     sys.path.insert(0, REPO_ROOT)
 
-import os, sys
-REPO_ROOT = os.path.dirname(os.path.dirname(__file__))  # يشير لجذر المشروع
-if REPO_ROOT not in sys.path:
-    sys.path.insert(0, REPO_ROOT)
-
-from llm.run import answer_question
+from llm.run import RakeemChatEngine, rakeem_engine
 from engine.io import load_excel, load_csv
 from engine.validate import validate_columns
 from engine.compute_core import compute_core
 from engine.taxes import compute_vat, compute_zakat
 from generator.report_generator import generate_financial_report
-import os
-
-# تحميل الإعدادات من بيئة Streamlit Cloud أو من local .env
-MODEL_NAME = os.environ.get("MODEL_NAME", "gpt-4o-mini")
-MAX_TOKENS = int(os.environ.get("MAX_TOKENS", "6000"))
-TEMPERATURE = float(os.environ.get("TEMPERATURE", "0.2"))
-RAG_TOP_K = int(os.environ.get("RAG_TOP_K", "3"))
 
 # ========== Streamlit Config ==========
 st.set_page_config(page_title="Rakeem Dashboard", layout="wide")
@@ -162,33 +150,6 @@ st.markdown(f"""
 </div>
 """, unsafe_allow_html=True)
 
-# --- Chat session memory (يُخزّن داخل جلسة المستخدم) ---
-if "chat_history" not in st.session_state:
-    st.session_state.chat_history = []   # [(role, text)]
-if "user_name" not in st.session_state:
-    st.session_state.user_name = None
-
-def add_to_history(role: str, text: str):
-    st.session_state.chat_history.append((role, text))
-
-def detect_and_store_name(text: str):
-    m = re.search(r"(?:أنا|اسمي)\s+([^\s,.!؟]+)", text)
-    if not m:
-        m = re.search(r"(?:my name is|I'm|I am)\s+([A-Za-z\u0600-\u06FF]+)", text, re.I)
-    if m:
-        st.session_state.user_name = m.group(1)
-
-def history_as_text() -> str:
-    """تجميع آخر الرسائل لتغذية الـLLM"""
-    lines = []
-    if st.session_state.user_name:
-        lines.append(f"معلومة: اسم المستخدم هو {st.session_state.user_name}.")
-    for role, text in st.session_state.chat_history[-12:]:
-        prefix = "المستخدم" if role == "user" else "المساعد"
-        lines.append(f"{prefix}: {text}")
-    return "\n".join(lines)
-# ----------------------------------------------------------
-
 # ========== File Upload ==========
 st.sidebar.header("📂 رفع الملف المالي")
 uploaded = st.sidebar.file_uploader("اختر ملف Excel أو CSV", type=["xlsx","xls","csv"])
@@ -318,62 +279,23 @@ for msg in st.session_state.chat_msgs:
     """, unsafe_allow_html=True)
 st.markdown('</div>', unsafe_allow_html=True)
 
-# إدخال المستخدم (Chat Input)
-st.subheader("💬 المساعد الذكي (Chat)")
-
-user_msg = st.chat_input("اكتب سؤالك هنا…")
-
-if user_msg:
-    add_to_history("user", user_msg)
-    detect_and_store_name(user_msg)
-
-    # لو كنت تحفظ هذه المقاطع سابقًا بعد رفع الملف/البناء، خذها من الـsession_state
-    company_snippet   = st.session_state.get("company_snippet", "")     # نبذة الشركة
-    financial_snippet = st.session_state.get("financial_snippet", "")   # ملخص مالي
-    zatca_snippet     = st.session_state.get("zatca_snippet", "")       # نص زكات/ضريبة من RAG أو ثابت
+# إدخال المستخدم
+user_q = st.chat_input("اكتب سؤالك هنا…")
+if user_q:
+    st.session_state.chat_msgs.append({"role": "user", "content": user_q})
 
     try:
-        result = answer_question(
-            user_msg,
-            company_info=company_snippet,
-            financial_data=financial_snippet,
-            zatca_text=zatca_snippet,
-            # retriever=st.session_state.get("retriever"),  # إذا كنت باني الـretriever في step2
-            top_k=RAG_TOP_K,
-            model=MODEL_NAME,
-            temperature=TEMPERATURE,
-            max_tokens=MAX_TOKENS,
+        res = rakeem_engine.answer(
+            user_q,
+            df=df,
+            company_name=company_name,
         )
-        answer  = result.get("answer", "")
-        sources = result.get("sources", [])
+        html_reply = res["html"]
     except Exception as e:
-        answer, sources = (f"⚠️ حدث خطأ أثناء الإجابة: {e}", [])
+        html_reply = f"⚠ حدث خطأ أثناء تحليل السؤال: {e}"
 
-    
-    # --- إظهار المصادر فقط عند الطلب ---
-wants_sources = False
-trigger_phrases = ["اذكري المصدر", "اذكر المصدر", "اذكري المصادر", "اذكر المصادر", "المصدر من فضلك", "sources please"]
-low = (user_msg or "").strip().lower()
-wants_sources = any(p in low for p in [t.lower() for t in trigger_phrases])
-
-if sources and wants_sources:
-    src_lines = []
-    for s in sources:
-        title = s.get("title", "مصدر")
-        url   = s.get("url", "") or s.get("source", "")
-        if url:
-            src_lines.append(f"- [{title}]({url})")
-        else:
-            src_lines.append(f"- {title}")
-    answer += "\n\n**المصادر:**\n" + "\n".join(src_lines)
-
-
-# عرض الرسائل السابقة
-for role, text in st.session_state.chat_history:
-    with st.chat_message("user" if role == "user" else "assistant"):
-        st.markdown(text)
-
-
+    st.session_state.chat_msgs.append({"role": "assistant", "content": html_reply})
+    st.rerun()
 
 # ====== PDF / HTML Report Export ======
 st.sidebar.markdown("---")

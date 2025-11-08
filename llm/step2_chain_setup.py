@@ -1,148 +1,170 @@
 # llm/step2_chain_setup.py
-# RAG (read-only): يتصل بـ Milvus الجاهز ويستخدم history للمحادثة
-# لا يوجد أي بناء/فهرسة هنا
-
 import os
-from typing import Dict, Any, List
-
-# نحاول نقرأ من st.secrets (ستريمليت كلاود) أو من البيئة محليًا
-try:
-    import streamlit as st
-    _SECRETS = getattr(st, "secrets", {})
-except Exception:
-    _SECRETS = {}
-
-from langchain_openai import ChatOpenAI, OpenAIEmbeddings
-from langchain_milvus import Milvus
-from langchain_core.prompts import PromptTemplate
-from langchain_core.documents import Document
+from dotenv import load_dotenv
 
 
-def _get(name: str, default=None):
-    if _SECRETS and name in _SECRETS:
-        return _SECRETS.get(name, default)
-    return os.getenv(name, default)
+from openai import OpenAI
 
+load_dotenv(override=True)
 
-def _cfg() -> Dict[str, Any]:
-    return {
-        "OPENAI_API_KEY": _get("OPENAI_API_KEY"),
-        "MODEL_NAME": _get("MODEL_NAME", "gpt-4o-mini"),
-        "TEMPERATURE": float(_get("TEMPERATURE", 0.2)),
-        "RAG_TOP_K": int(_get("RAG_TOP_K", 3)),
-        "MILVUS_URI": _get("MILVUS_URI"),
-        "MILVUS_TOKEN": _get("MILVUS_TOKEN"),
-        "MILVUS_COLLECTION": _get("MILVUS_COLLECTION", "rakeem_rag_v1"),
-        "EMBEDDING_MODEL": _get("EMBEDDING_MODEL", "text-embedding-3-small"),
-    }
-
-
-class SimpleQA:
+class LangChainSetup:
     """
-    سلسلة سؤال/جواب:
-      - تستخدم history من الواجهة (ذاكرة جلسة)
-      - تسترجع من Milvus (إن وجد سياق) وتذكر «المصدر»
-      - لو ما وُجد سياق كافٍ: تكمّل إجابة عامة بدون اختلاق مصادر
+    تهيئة LLM + RAG:
+    - يحمّل FAISS من ./data (index.faiss, index.pkl) إن وُجد.
+    - إن لم توجد، يرجع إلى RAG بسيط عبر zatca_docs.jsonl.
     """
-    def __init__(self, llm: ChatOpenAI, retriever, prompt: PromptTemplate):
-        self.llm = llm
-        self.retriever = retriever
-        self.prompt = prompt
+    def __init__(self):
+        self.api_key = os.getenv("OPENAI_API_KEY")
+        
+        self.model_name = os.getenv("MODEL_NAME", "gpt-4o-mini")
+        self.temperature = float(os.getenv("TEMPERATURE", "0.2"))
+        
+        self.max_tokens = int(os.getenv("MAX_TOKENS", "6000"))
 
-    def _fmt_docs(self, docs: List[Document]) -> str:
-        return "\n\n".join(d.page_content for d in docs)
+        self.rag_store_path = os.getenv("RAG_STORE_PATH", "./data")
+        self.jsonl_path     = os.getenv("ZATCA_JSONL_PATH", "./data/zatca_docs.jsonl")
 
-    def invoke(self, inputs: Dict[str, Any]) -> Dict[str, Any]:
+        self.client: OpenAI | None = None
+        self.memory = []
+        self.retriever = None
+        self.documents = []  
+
+    
+    def setup_llm(self):
+        if not self.api_key:
+            print("⚠️ OPENAI_API_KEY غير موجود في .env")
+            return False
+        
+        self.client = OpenAI(api_key=self.api_key)
+        print(f"✅ OpenAI جاهز - النموذج: {self.model_name} - max_tokens={self.max_tokens}")
+        return True
+
+    def setup_memory(self):
+        self.memory = []
+        return True
+
+    
+    def setup_retriever(self):
         try:
-            q = (inputs.get("input") or inputs.get("question") or "").strip()
-            history = (inputs.get("history") or "").strip()
-            if not q:
-                return {"answer": "الرجاء كتابة سؤالك.", "context": []}
+            from langchain_community.vectorstores import FAISS
+            from langchain_openai import OpenAIEmbeddings
 
-            # 1) استرجاع اختياري من Milvus
-            try:
-                docs = self.retriever.get_relevant_documents(q)
-            except Exception:
-                docs = []
+            index_file = os.path.join(self.rag_store_path, "index.faiss")
+            if not os.path.exists(index_file):
+                print(f"⚠️ لا يوجد {index_file} — سنستخدم RAG بسيط")
+                return self._load_simple_rag()
 
-            ctx = self._fmt_docs(docs) if docs else ""
+            embeddings = OpenAIEmbeddings(
+                openai_api_key=self.api_key,
+                model=os.getenv("EMBEDDING_MODEL", "text-embedding-3-small"),
+            )
+            vectorstore = FAISS.load_local(
+                self.rag_store_path,
+                embeddings,
+                allow_dangerous_deserialization=True
+            )
+            top_k = int(os.getenv("RAG_TOP_K", "3"))
+            self.retriever = vectorstore.as_retriever(search_kwargs={"k": top_k})
+            print(f"✅ تم تحميل FAISS من {self.rag_store_path} (TopK={top_k})")
+            return True
 
-            # 2) البرومبت = history + context + السؤال
-            prompt_text = self.prompt.format(history=history, context=ctx, question=q)
-
-            # 3) LLM
-            msg = self.llm.invoke(prompt_text)
-            ans = getattr(msg, "content", str(msg))
-
-            # 4) إلحاق المصادر (من metadata) إذا فيه سياق
-            if docs:
-                srcs = []
-                for d in docs:
-                    m = (getattr(d, "metadata", {}) or {})
-                    title = m.get("title") or m.get("source")
-                    if title:
-                        srcs.append(title)
-                if srcs:
-                    ans += "\n\nالمصدر: " + " | ".join(dict.fromkeys(srcs))  # إزالة التكرار
-
-            return {"answer": ans, "context": docs}
+        except ImportError:
+            print("⚠️ langchain غير متاح — استخدام RAG بسيط")
+            return self._load_simple_rag()
         except Exception as e:
-            return {"answer": f"حدث خطأ غير متوقع: {e}", "context": []}
+            print(f"⚠️ فشل تحميل RAG (FAISS): {e}")
+            return self._load_simple_rag()
 
+    def _load_simple_rag(self):
+        try:
+            import json
+            if not os.path.exists(self.jsonl_path):
+                print(f"⚠️ ملف المستندات غير موجود: {self.jsonl_path}")
+                self.retriever = None
+                return False
 
-def create_qa_chain() -> SimpleQA:
-    """
-    يجهّز: Embeddings + Milvus retriever + Prompt + LLM
-    (قراءة فقط من مجموعة Milvus الموجودة مسبقًا)
-    """
-    cfg = _cfg()
+            self.documents = []
+            with open(self.jsonl_path, "r", encoding="utf-8") as f:
+                for line in f:
+                    line = line.strip()
+                    if not line:
+                        continue
+                    try:
+                        o = json.loads(line)
+                    except Exception:
+                        continue
+                    text = (o.get("text") or o.get("answer") or "").strip()
+                    src  = (o.get("source") or o.get("topic") or "ZATCA").strip()
+                    if text:
+                        self.documents.append({"text": text, "source": src})
 
-    # تحقق مبكّر من الأسرار الأساسية
-    missing = [k for k in ("OPENAI_API_KEY","MILVUS_URI","MILVUS_TOKEN") if not cfg.get(k)]
-    if missing:
-        raise RuntimeError(f"مفاتيح مفقودة: {', '.join(missing)} — أضفها في Streamlit Secrets.")
+            self.retriever = "simple"
+            print(f"✅ تم تحميل {len(self.documents)} مستند (RAG بسيط)")
+            return True
 
-    embeddings = OpenAIEmbeddings(
-        model=cfg["EMBEDDING_MODEL"],
-        openai_api_key=cfg["OPENAI_API_KEY"],
-    )
+        except Exception as e:
+            print(f"⚠️ فشل تحميل المستندات البسيطة: {e}")
+            self.retriever = None
+            return False
 
-    # فتح المجموعة الموجودة (لا ننشئ ولا نبني هنا)
-    vector_store = Milvus(
-        embedding_function=embeddings,
-        collection_name=cfg["MILVUS_COLLECTION"],
-        connection_args={
-            "uri": cfg["MILVUS_URI"],
-            "token": cfg["MILVUS_TOKEN"],
-            "secure": True,
-        },
-    )
-    retriever = vector_store.as_retriever(search_kwargs={"k": cfg["RAG_TOP_K"]})
+    def get_context_from_rag(self, question):
+        if not self.retriever:
+            return None
+        try:
+            if self.retriever != "simple":
+                docs = self.retriever.invoke(question)
+                if docs:
+                    ctx = "\n\n".join([doc.page_content for doc in docs[:3]])
+                    return {"text": ctx, "docs": docs[:3]}
+                return None
+            else:
+                return None
+        except Exception as e:
+            print(f"⚠️ خطأ في الاسترجاع: {e}")
+            return None
 
-    # تعليمات: حوار + ذاكرة + RAG اختياري
-    system_ar = (
-        "أنت «رقيم» مساعد مالي عربي. تحاور بالعربية الفصحى، "
-        "واستخدم المحادثة السابقة لتتذكّر حقائق بسيطة يذكرها المستخدم (مثل اسمه). "
-        "إذا توفر سياق من قاعدة المعرفة فاعتمد عليه وألحق «المصدر» في النهاية. "
-        "إذا لم يتوفر سياق كافٍ، يجوز الإجابة بالمعرفة العامة بدون اختلاق مصادر."
-    )
+    
+    def ask_question_real(self, prompt, context=None):
+        if not self.client:
+            return {"answer": "خطأ: LLM غير مهيأ", "source_documents": []}
+        try:
+            rag_payload = self.get_context_from_rag(prompt) if self.retriever else None
 
-    prompt = PromptTemplate(
-        input_variables=["history", "context", "question"],
-        template=(
-            f"{system_ar}\n\n"
-            "[المحادثة السابقة]\n{history}\n\n"
-            "[السياق (اختياري من RAG)]\n{context}\n\n"
-            "[السؤال]\n{question}\n\n"
-            "الجواب:"
-        ),
-    )
+            full_prompt = prompt
+            if context:
+                full_prompt = f"السياق:\n{context}\n\nالسؤال:\n{prompt}"
+            elif isinstance(rag_payload, dict) and rag_payload.get("text"):
+                full_prompt = f"المعلومات من قاعدة المعرفة:\n{rag_payload['text']}\n\nالسؤال:\n{prompt}"
 
-    llm = ChatOpenAI(
-        model=cfg["MODEL_NAME"],
-        temperature=cfg["TEMPERATURE"],
-        openai_api_key=cfg["OPENAI_API_KEY"],
-    )
+            messages = []
+            if self.memory:
+                messages.extend(self.memory[-4:])
+            messages.append({"role": "user", "content": full_prompt})
 
-    return SimpleQA(llm=llm, retriever=retriever, prompt=prompt)
+            
+            resp = self.client.chat.completions.create(
+                model=self.model_name,
+                messages=messages,
+                temperature=self.temperature,
+                max_tokens=self.max_tokens,  
+            )
+            answer = resp.choices[0].message.content or ""
 
+            self.memory.extend([
+                {"role": "user", "content": prompt},
+                {"role": "assistant", "content": answer}
+            ])
+
+            return {
+                "answer": answer,
+                "source_documents": (rag_payload.get("docs") if isinstance(rag_payload, dict) else []),
+                "used_rag": bool(rag_payload)
+            }
+
+        except Exception as e:
+            msg = f"خطأ في الاستدعاء: {e}"
+            print(f"❌ {msg}")
+            return {"answer": msg, "source_documents": []}
+
+    def clear_memory(self):
+        self.memory = []

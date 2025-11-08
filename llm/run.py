@@ -1,230 +1,438 @@
 # llm/run.py
-# Orchestrates: Prompt engineering (Step1) + Retrieval/Chain (Step2) + Context formatting (Step3) + Response parsing (Step4)
-
 from __future__ import annotations
-import os
+import os, json, glob, math
 from typing import List, Dict, Any, Optional, Tuple
+import pandas as pd
+import re
 
-# --- LLM client (OpenAI) ---
-from openai import OpenAI
-
-# --- Step 1: Prompt engineering ---
-from llm.step1_prompt_engineer import ArabicPromptEngineer
-
-# --- Step 2: Retrieval / Chain setup (Milvus + LangChain) ---
-# ملاحظة: داخل step2 عدّلنا المسارات لواجهات LangChain الحديثة، لذلك هنا نستخدم دوال step2 فقط
-# الدوال المتوقعة: create_qa_chain(retriever, model_name) و build_retriever_if_needed() (اختياري)
+# ========= Optional: يستخدم LangChain للـ FAISS =========
+_EMBED_READY = True
 try:
-    from llm.step2_chain_setup import (
-        create_qa_chain,
-        build_retriever_if_needed,   # تبني/ترجع Retriever جاهز (Milvus) إن توفر
-    )
+    from langchain_community.vectorstores import FAISS
+    from langchain_openai import OpenAIEmbeddings
+    from langchain.text_splitter import RecursiveCharacterTextSplitter
 except Exception:
-    # لو step2 غير موجود/مختلف نكمّل بدون RAG
-    create_qa_chain = None
-    build_retriever_if_needed = None
+    _EMBED_READY = False
 
-# --- Step 3: Context formatter ---
-# دالة لتجهيز النصوص الخام (شركة/مالية/زاتكا/سياق) ودمجها بشكل نظيف قبل تغذيتها للـ Prompt
+# ========= OpenAI =========
 try:
-    from llm.step3_context_formatter import format_context
+    from openai import OpenAI
 except Exception:
-    def format_context(
-        company_info: str = "",
-        financial_data: str = "",
-        legal_text: str = "",
-        rag_snippets: str = "",
-    ) -> str:
-        chunks = []
-        if company_info:
-            chunks.append(f"## Company\n{company_info}")
-        if financial_data:
-            chunks.append(f"## Financials\n{financial_data}")
-        if legal_text:
-            chunks.append(f"## Regulations\n{legal_text}")
-        if rag_snippets:
-            chunks.append(f"## Retrieved\n{rag_snippets}")
-        return "\n\n".join(chunks)
+    OpenAI = None
 
-# --- Step 4: Response parser ---
-# يحوّل مخرجات الـLLM إلى شكل موحّد {answer, sources, reasoning...}
-try:
-    from llm.step4_response_parser import parse_answer
-except Exception:
-    def parse_answer(raw_text: str, sources: List[Dict[str, str]] | None = None) -> Dict[str, Any]:
-        return {
-            "answer": raw_text.strip(),
-            "sources": sources or [],
-        }
 
-# ---------------------------------------------------------------------------------------
-# إعدادات من المتغيرات البيئية (Streamlit Secrets أو .env)
-MODEL_NAME = os.getenv("MODEL_NAME", "gpt-4o-mini")
-TEMPERATURE = float(os.getenv("TEMPERATURE", "0.2"))
-MAX_TOKENS = int(os.getenv("MAX_TOKENS", "800"))
-RAG_TOP_K = int(os.getenv("RAG_TOP_K", "3"))
+# =========================
+# Helpers: DF facts & periods
+# =========================
+def _safe_sum(series) -> float:
+    try:
+        return float(pd.to_numeric(series, errors="coerce").fillna(0).sum())
+    except Exception:
+        return 0.0
 
-# مفاتيح Milvus (إن وُجدت — لو غير متوفرة، نشتغل بدون RAG)
-MILVUS_URI = os.getenv("MILVUS_URI", "").strip()
-MILVUS_TOKEN = os.getenv("MILVUS_TOKEN", "").strip()
-MILVUS_COLLECTION = os.getenv("MILVUS_COLLECTION", "").strip()
+def _fmt_sar(x: float) -> str:
+    try:
+        return f"{float(x):,.0f} ريال"
+    except Exception:
+        return "0 ريال"
 
-# عميل OpenAI
-_client = OpenAI()
-# مهندس البرومبت
-PROMPT = ArabicPromptEngineer()
+def _company_period(df: pd.DataFrame) -> str:
+    if df is None or "date" not in df.columns:
+        return ""
+    d = pd.to_datetime(df["date"], errors="coerce")
+    d = d[d.notna()]
+    if d.empty:
+        return ""
+    return f"{d.min().date()} → {d.max().date()}"
 
-# ---------------------------------------------------------------------------------------
-def _format_docs_for_prompt(docs: List[Any]) -> Tuple[str, List[Dict[str, str]]]:
+def _df_facts(df: Optional[pd.DataFrame]) -> Dict[str, Any]:
+    if df is None or df.empty:
+        return {}
+    facts: Dict[str, Any] = {}
+    c = {c.lower().strip(): c for c in df.columns}
+    rev = df[c.get("revenue")] if "revenue" in c else None
+    exp = df[c.get("expenses")] if "expenses" in c else None
+    pro = df[c.get("profit")] if "profit" in c else None
+    cf  = df[c.get("cash_flow")] if "cash_flow" in c else None
+
+    facts["total_revenue"]  = _safe_sum(rev) if rev is not None else 0.0
+    facts["total_expenses"] = _safe_sum(exp) if exp is not None else 0.0
+    facts["total_profit"]   = _safe_sum(pro) if pro is not None else 0.0
+    facts["total_cashflow"] = _safe_sum(cf)  if cf  is not None else 0.0
+    facts["period"] = _company_period(df)
+
+    # اتجاهات بسيطة MoM (إن وُجد تاريخ)
+    if "date" in df.columns:
+        d = df[["date"]].copy()
+        d["date"] = pd.to_datetime(d["date"], errors="coerce")
+        d = d[d["date"].notna()]
+        if not d.empty:
+            df2 = df.copy()
+            df2["date"] = pd.to_datetime(df2["date"], errors="coerce")
+            df2 = df2[df2["date"].notna()]
+            for col in ["revenue", "expenses", "profit", "cash_flow"]:
+                if col in df2.columns:
+                    s = pd.to_numeric(df2[col], errors="coerce").fillna(0)
+                    # آخر قيمتين
+                    if len(s) >= 2:
+                        last = float(s.iloc[-1])
+                        prev = float(s.iloc[-2])
+                        delta = last - prev
+                        pct = (delta / (prev if prev != 0 else 1)) * 100.0
+                        facts[f"mom_{col}"] = {"last": last, "prev": prev, "delta": delta, "pct": pct}
+    return facts
+
+
+# =========================
+# Forecast: Holt (من engine)
+# =========================
+def _forecast_snapshot(df: Optional[pd.DataFrame]) -> Dict[str, Any]:
+    out = {"ok": False}
+    if df is None or df.empty:
+        return out
+    try:
+        from engine.forecasting_core import build_revenue_forecast
+        target_col = "profit" if "profit" in df.columns else "revenue"
+        fc = build_revenue_forecast(df, periods=3)
+        if fc is None or fc.empty:
+            return out
+        last_actual = float(pd.to_numeric(df[target_col], errors="coerce").fillna(0).iloc[-1])
+        next_pred   = float(pd.to_numeric(fc["forecast"], errors="coerce").fillna(0).iloc[-1])
+        change_pct  = ((next_pred - last_actual) / (abs(last_actual) if last_actual != 0 else 1)) * 100.0
+        trend = "ارتفاع" if change_pct > 0 else ("انخفاض" if change_pct < 0 else "استقرار")
+        out.update({
+            "ok": True,
+            "target": target_col,
+            "last_actual": last_actual,
+            "next_pred": next_pred,
+            "change_pct": change_pct,
+            "trend": trend
+        })
+        return out
+    except Exception:
+        return out
+
+
+# =========================
+# RAG: فهرسة ملفات المشروع فعليًا
+# =========================
+def _collect_repo_texts() -> List[Tuple[str, str]]:
     """
-    يحوّل Documents المسترجعة إلى نص لحقنه في البرومبت + مصفوفة مصادر لعرضها في الواجهة.
-    نتوقع أن كل Doc لديه .page_content و metadata.get('source') و metadata.get('title')
+    يرجّع [(path, text)] من ملفات المشروع المهمة لربط الـLLM بالسياق التقني.
+    تشمل engine/, generator/, ui/app.py, llm/*.py (بدون هذا الملف لتفادي الدوران).
     """
-    if not docs:
-        return "", []
-    joined = []
-    sources = []
-    for i, d in enumerate(docs, 1):
-        text = getattr(d, "page_content", str(d))
-        meta = getattr(d, "metadata", {}) or {}
-        src = meta.get("source") or meta.get("url") or meta.get("file", "N/A")
-        title = meta.get("title") or src
-        joined.append(f"[{i}] {title}\n{text}")
-        sources.append({"id": i, "title": title, "source": src})
-    return "\n\n".join(joined), sources
-# --- أضف هاتين الدالتين بعد _format_docs_for_prompt مباشرةً ---
+    paths: List[str] = []
+    paths += glob.glob("engine//*.py", recursive=True)
+    paths += glob.glob("generator//*.py", recursive=True)
+    paths += glob.glob("ui/app.py")  # مفيد لسياق الرسوم والتصميم العام
+    paths += [p for p in glob.glob("llm/*.py") if not p.endswith("run.py")]  # بقية الـLLM
 
-def _doc_similarity(doc) -> float:
-    """
-    يستخرج درجة تشابه موحّدة (0..1) من ميتاداتا المستند إن توفّرت:
-    - similarity / sim / cosine_sim (0..1) → تُستخدم كما هي.
-    - score (0..1) → نستخدمها كما هي إن كانت مطبّعة.
-    - distance (0..1) → نحوّلها إلى تشابه عبر (1 - distance).
-    - إن لم تتوفر أي قيمة صالحة → 0.0
-    """
-    meta = getattr(doc, "metadata", {}) or {}
-
-    for key in ("similarity", "sim", "cosine_sim"):
-        if key in meta:
-            try:
-                return float(meta[key])
-            except Exception:
-                pass
-
-    if "score" in meta:
+    out: List[Tuple[str, str]] = []
+    for p in paths:
         try:
-            s = float(meta["score"])
-            if 0.0 <= s <= 1.0:
-                return s
+            with open(p, "r", encoding="utf-8") as f:
+                txt = f.read()
+                if txt.strip():
+                    out.append((p, txt))
         except Exception:
-            pass
+            continue
+    return out
 
-    if "distance" in meta:
-        try:
-            d = float(meta["distance"])
-            d = max(0.0, min(1.0, d))
-            return 1.0 - d
-        except Exception:
-            pass
-
-    return 0.0
-
-
-def _filter_by_threshold(docs, min_sim: float = 0.50):
-    """يرجع فقط المستندات ذات التشابه ≥ العتبة المحددة."""
-    good = []
-    for d in docs or []:
-        if _doc_similarity(d) >= min_sim:
-            good.append(d)
-    return good
-
-
-# --- استبدل دالة answer_question بالكامل بهذه النسخة ---
-
-def answer_question(
-    question: str,
-    *,
-    # هذه الثلاثة تُمرر من الواجهة (مقتطف تعريف الشركة ونص مالي مختصر ونص من لوائح الزكاة/الضريبة)
-    company_info: str = "",
-    financial_data: str = "",
-    zatca_text: str = "",
-    # لو عندك Retriever خارجي (من step2) مرّره؛ وإلا بنحاول نبنيه تلقائيًا إن توفرت بيئة Milvus
-    retriever: Any | None = None,
-    top_k: Optional[int] = None,
-    model: Optional[str] = None,
-    temperature: Optional[float] = None,
-    max_tokens: Optional[int] = None,
-) -> Dict[str, Any]:
+def _build_or_load_faiss(index_dir: str = "./data/rag_index") -> Tuple[Any, List[str]]:
     """
-    الدالة الرئيسية: تجمع السياق (RAG + بيانات الشركة) > تبني البرومبت > تنادي LLM > ترجع {answer, sources}
+    يبني أو يحمل فهرس FAISS من ملفات المشروع.
+    يرجّع (retriever_or_None, source_paths)
     """
-    top_k = top_k or RAG_TOP_K
+    if not _EMBED_READY:
+        return None, []
 
-    # --- 1) Retrieval (اختياري) ---
-    docs: List[Any] = []
-    sources: List[Dict[str, str]] = []
+    os.makedirs(index_dir, exist_ok=True)
+    idx_file = os.path.join(index_dir, "index.faiss")
+    meta_file = os.path.join(index_dir, "index.pkl")
 
     try:
-        # لو ما جاء Retriever من الواجهة، وحاضرين مفاتيح Milvus، نجرب نبنيه من step2
-        if retriever is None and build_retriever_if_needed and MILVUS_URI and MILVUS_COLLECTION:
-            retriever = build_retriever_if_needed(
-                uri=MILVUS_URI,
-                token=MILVUS_TOKEN,
-                collection=MILVUS_COLLECTION,
-                k=top_k,
+        if os.path.exists(idx_file) and os.path.exists(meta_file):
+            # تحميل موجود
+            embeddings = OpenAIEmbeddings(model=os.getenv("EMBEDDING_MODEL", "text-embedding-3-small"),
+                                          openai_api_key=os.getenv("OPENAI_API_KEY"))
+            vs = FAISS.load_local(index_dir, embeddings, allow_dangerous_deserialization=True)
+            retriever = vs.as_retriever(search_kwargs={"k": int(os.getenv("RAG_TOP_K", "4"))})
+            # حاول قراءة قائمة المصادر المخزّنة
+            src_list = []
+            try:
+                with open(os.path.join(index_dir, "sources.json"), "r", encoding="utf-8") as f:
+                    src_list = json.load(f)
+            except Exception:
+                pass
+            return retriever, src_list
+
+        # بناء جديد
+        raw = _collect_repo_texts()
+        if not raw:
+            return None, []
+        splitter = RecursiveCharacterTextSplitter(chunk_size=1600, chunk_overlap=150)
+        docs, srcs = [], []
+        for path, text in raw:
+            for chunk in splitter.split_text(text):
+                docs.append({"page_content": chunk, "metadata": {"source": path}})
+                srcs.append(path)
+
+        # حول docs إلى Document للكلاس
+        from langchain.schema import Document
+        lc_docs = [Document(page_content=d["page_content"], metadata=d["metadata"]) for d in docs]
+
+        embeddings = OpenAIEmbeddings(model=os.getenv("EMBEDDING_MODEL", "text-embedding-3-small"),
+                                      openai_api_key=os.getenv("OPENAI_API_KEY"))
+        vs = FAISS.from_documents(lc_docs, embedding=embeddings)
+        vs.save_local(index_dir)
+
+        # خزّن قائمة المسارات للمصادر
+        try:
+            uniq_srcs = list(dict.fromkeys(srcs))
+            with open(os.path.join(index_dir, "sources.json"), "w", encoding="utf-8") as f:
+                json.dump(uniq_srcs, f, ensure_ascii=False, indent=2)
+        except Exception:
+            pass
+
+        retriever = vs.as_retriever(search_kwargs={"k": int(os.getenv("RAG_TOP_K", "4"))})
+        return retriever, list(dict.fromkeys(srcs))
+    except Exception:
+        return None, []
+
+
+def _retrieve_context(retriever, query: str) -> Tuple[str, List[str]]:
+    if retriever is None:
+        return "", []
+    try:
+        docs = retriever.invoke(query)
+        if not docs:
+            return "", []
+        take = docs[:4]
+        txt = "\n\n".join(d.page_content[:1200] for d in take)
+        srcs = list(dict.fromkeys([d.metadata.get("source", "repo") for d in take]))
+        return txt, srcs
+    except Exception:
+        return "", []
+
+
+# =========================
+# Engine
+# =========================
+class RakeemChatEngine:
+    """
+    محرك محادثة احترافي 100% LLM:
+    - يعتمد على ملف المستخدم (df) + RAG من ملفات المشروع.
+    - السؤال الأول: يُظهر ملخص مالي + الشرح + التوصيات.
+    - بقية الأسئلة: الشرح + التوصيات فقط.
+    - إذا سأل عن "المصادر" تعرض فقط عند الطلب.
+    - إذا سأل "اعرض الملخص المالي" يعرض الملخص فقط (كما في أول سؤال).
+    """
+
+    def __init__(self):
+        self.history: List[Dict[str, str]] = []  # [ {role, content} ... ]
+        self.client: Optional["OpenAI"] = None
+        self.model_name = os.getenv("MODEL_NAME", "gpt-4o-mini")
+        self.temperature = float(os.getenv("TEMPERATURE", "0.15"))
+        self.max_tokens = int(os.getenv("MAX_TOKENS", "1400"))
+        # LLM
+        self._init_llm()
+        # RAG (فايس)
+        self.retriever, self.repo_sources = _build_or_load_faiss()
+
+    def _init_llm(self):
+        api_key = os.getenv("OPENAI_API_KEY")
+        if OpenAI is None or not api_key:
+            self.client = None
+            return
+        self.client = OpenAI(api_key=api_key)
+
+    # ---------- Blocks ----------
+    def _summary_block(self, company_name: str, facts: Dict[str, Any]) -> str:
+        parts = []
+        parts.append(f"<b>التحليل المالي للشركة: {company_name or 'شركة غير محددة'}</b><br><br>")
+        parts.append("<b>ملخص مالي مختصر:</b>")
+        parts.append("<ul>")
+        parts.append(f"<li>إجمالي الإيرادات: {_fmt_sar(facts.get('total_revenue', 0))}</li>")
+        parts.append(f"<li>إجمالي المصروفات: {_fmt_sar(facts.get('total_expenses', 0))}</li>")
+        parts.append(f"<li>صافي الربح: {_fmt_sar(facts.get('total_profit', 0))}</li>")
+        parts.append(f"<li>التدفق النقدي: {_fmt_sar(facts.get('total_cashflow', 0))}</li>")
+        if facts.get("period"):
+            parts.append(f"<li>الفترة: {facts['period']}</li>")
+        parts.append("</ul>")
+        return "\n".join(parts)
+
+    def _allowed_values_text(self, facts: Dict[str, Any], fc: Dict[str, Any]) -> str:
+        lines = []
+        if facts:
+            lines += [
+                f"- إجمالي الإيرادات: {_fmt_sar(facts.get('total_revenue', 0))}",
+                f"- إجمالي المصروفات: {_fmt_sar(facts.get('total_expenses', 0))}",
+                f"- صافي الربح: {_fmt_sar(facts.get('total_profit', 0))}",
+                f"- التدفق النقدي: {_fmt_sar(facts.get('total_cashflow', 0))}",
+            ]
+            if facts.get("period"):
+                lines.append(f"- الفترة المغطاة: {facts['period']}")
+            for key in ["revenue", "expenses", "profit", "cash_flow"]:
+                mom = facts.get(f"mom_{key}")
+                if mom:
+                    lines.append(f"- التغير الشهري {key}: {mom['delta']:+.0f} ({mom['pct']:+.2f}%)")
+        if fc.get("ok"):
+            lines.append(f"- تنبؤ {fc['target']}: {_fmt_sar(fc['next_pred'])} ({fc['trend']}, {abs(fc['change_pct']):.2f}%)")
+        return "\n".join(lines) if lines else "لا توجد قيم مسموح بها حالياً."
+
+    def _build_prompt(self, user_q: str, facts: Dict[str, Any], fc: Dict[str, Any],
+                      repo_context: str, is_followup: bool) -> str:
+        """
+        برومبت عربي صارم + تعليمات تنسيق.
+        """
+        allowed_text = self._allowed_values_text(facts, fc)
+        forecast_text = ""
+        if fc.get("ok"):
+            forecast_text = (
+                f"نتيجة التنبؤ (Holt): اتجاه {fc['trend']} متوقع في {fc['target']} "
+                f"بنسبة تقريبية {abs(fc['change_pct']):.2f}%."
             )
 
-        if retriever is not None:
-            # بعض الـretrievers تستخدم .invoke أو .get_relevant_documents
-            try:
-                docs = retriever.get_relevant_documents(question)
-            except Exception:
-                docs = retriever.invoke(question)  # واجهة RunnableLC
-    except Exception:
-        # لو فشل RAG نكمل بدون ما نكسر التجربة
-        docs = []
+        task_common = (
+            "اكتب الرد بالعربية الفصحى، بصياغة احترافية، دون أي إيموجي أو زخرفة.\n"
+            "التزم بالقيم المسموح بها فقط؛ لا تخترع أرقامًا جديدة. "
+            "اربط الاستنتاجات مباشرة ببيانات المستخدم والتنبؤ إن توفر.\n"
+            "صيغة الإخراج واجبة (بدون عناوين إضافية):\n"
+            "<b>الشرح المختصر:</b>\n"
+            "فقرة من 70–120 كلمة، تربط السؤال ببيانات df وبالمنطق المالي (وRAG عند الحاجة).\n"
+            "<b>التوصيات:</b>\n"
+            "• 3 إلى 5 نقاط عملية وواقعية وذات صلة مباشرة بالسؤال.\n"
+        )
 
-    # --- 2) فلترة نتائج RAG بعتبة التشابه (50%) ---
-    MIN_SIM = 0.50
-    filtered_docs = _filter_by_threshold(docs, MIN_SIM)
+        first_extra = "" if is_followup else (
+            "في إجابة السؤال الأول، ركّز على قراءة الاتجاه العام ثم قدّم توصيات مختصرة.\n"
+        )
 
-    if filtered_docs:
-        rag_used = True
-        rag_status = "ok"
-    else:
-        rag_used = False
-        rag_status = "no_match"
-        filtered_docs = []
+        prompt = (
+            "أنت مستشار مالي عربي محترف. لديك:\n"
+            "1) بيانات مالية فعلية من المستخدم (df).\n"
+            "2) تنبؤ Holt مبني على df (إن توفر).\n"
+            "3) سياق تقني/تشغيلي من ملفات المشروع (RAG).\n\n"
+            f"القيم المسموح بها:\n{allowed_text}\n\n"
+            f"سياق التنبؤ:\n{forecast_text or 'لا يوجد تنبؤ صالح.'}\n\n"
+            f"سياق RAG (اختصار من ملفات المشروع):\n{repo_context[:2000]}\n\n"
+            f"سؤال المستخدم: {user_q}\n\n"
+            f"{task_common}{first_extra}"
+        )
+        return prompt
 
-    # نحول المستندات المفلترة إلى نص حقن + مصادر للواجهة
-    rag_text, sources = _format_docs_for_prompt(filtered_docs)
+    # ---------- Public ----------
+    def answer(self, question: str, df: Optional[pd.DataFrame] = None,
+               company_name: str = "شركة غير محددة") -> Dict[str, Any]:
+        if not question:
+            return {"html": "لم أتلقَّ سؤالًا.", "sources": [], "is_first": False}
 
-    # (اختياري) توضيح داخلي للسياق إذا لم نجد تطابق من ZATCA — بدون إظهاره للمستخدم مباشرة
-    # يمكنك حذف هذه الأسطر لو ما تبي تضيف الملاحظة للسياق:
-    # if not rag_used and rag_status == "no_match":
-    #     zatca_text = (zatca_text or "") + "\n[تنبيه نظامي] لا توجد إجابة مطابقة من قاعدة ZATCA لهذا السؤال."
+        low = question.strip().lower()
+        is_first = len([m for m in self.history if m["role"] == "assistant"]) == 0
 
-    # --- 3) Build Prompt (Step1 + Step3) ---
-    prompt = _pick_prompt(
-        question=question,
-        company_info=company_info,
-        financial_data=financial_data,
-        legal_text=zatca_text,
-        rag_text=rag_text,
-        allowed_values_text="",  # إن كان عندك قيود مسموحة مررها هنا
-    )
+        facts = _df_facts(df) if df is not None else {}
+        fc    = _forecast_snapshot(df) if df is not None else {"ok": False}
 
-    # --- 4) LLM Call ---
-    raw = _llm_call(prompt, model=model, temperature=temperature, max_tokens=max_tokens)
+        # طلب مصادر صريح
+        if any(w in low for w in ["مصادر", "المراجع", "source", "sources"]):
+          _, rag_srcs = _retrieve_context(self.retriever, question)
+          all_srcs = list(dict.fromkeys((rag_srcs or []) + [
+              "البيانات المالية المرفوعة من المستخدم",
+              "هيئة الزكاة والضريبة والجمارك (ZATCA)"
+          ]))
+          html = "<b>المصادر المتاحة:</b><ul>" + "".join(f"<li>{s}</li>" for s in all_srcs) + "</ul>"
+          return {"html": html, "sources": all_srcs, "is_first": False}
 
-    # --- 5) Parse (Step4) ---
-    out = parse_answer(raw, sources=sources)
-    if "answer" not in out:
-        out["answer"] = raw
-    if "sources" not in out:
-        out["sources"] = sources
+        # طلب الملخص المالي صريح
+        if "اعرض الملخص المالي" in question or "الملخص المالي" == question.strip():
+          if not facts:
+              return {"html": "لا توجد بيانات مالية لعرض الملخص.", "sources": [], "is_first": False}
+          from engine.taxes import compute_vat, compute_zakat
+          zakat = compute_zakat(df) if df is not None else 0
+          vat = compute_vat(df) if df is not None else 0
 
-    # إشارات حالة RAG للواجهة/التشخيص
-    out["rag_used"] = rag_used          # True/False
-    out["rag_status"] = rag_status      # "ok" أو "no_match"
-    return out
+          html = "<b>الملخص المالي:</b><ul>"
+          html += f"<li>إجمالي الإيرادات: {_fmt_sar(facts.get('total_revenue', 0))}</li>"
+          html += f"<li>إجمالي المصروفات: {_fmt_sar(facts.get('total_expenses', 0))}</li>"
+          html += f"<li>صافي الربح: {_fmt_sar(facts.get('total_profit', 0))}</li>"
+          html += f"<li>التدفق النقدي: {_fmt_sar(facts.get('total_cashflow', 0))}</li>"
+          html += f"<li>الضريبة (VAT): {_fmt_sar(vat)}</li>"
+          html += f"<li>الزكاة (Zakat): {_fmt_sar(zakat)}</li>"
+          if facts.get("period"):
+              html += f"<li>الفترة: {facts['period']}</li>"
+          html += "</ul>"
+          return {"html": html, "sources": ["البيانات المالية", "ZATCA"], "is_first": False}
+
+        # سياق RAG
+        rag_text, rag_sources = _retrieve_context(self.retriever, question)
+
+        # برومبت
+        prompt = self._build_prompt(question, facts, fc, rag_text, is_followup=not is_first)
+
+        # لو ما فيه LLM
+        if self.client is None:
+            html = []
+            if is_first and facts:
+                html.append(self._summary_block(company_name, facts))
+            html.append("<b>الشرح المختصر:</b>\nتمت معالجة السؤال محليًا لكن اتصال الـLLM غير متاح.")
+            html.append("<b>التوصيات:</b>\n<ul><li>تفعيل اتصال النموذج.</li><li>إعادة المحاولة.</li></ul>")
+            return {"html": "\n".join(html), "sources": rag_sources, "is_first": is_first}
+
+        # نطلب من الـLLM
+        try:
+            msgs = [
+                {"role": "system", "content": "أنت مستشار مالي عربي محترف، دقيق وعملي."},
+                {"role": "user", "content": prompt}
+            ]
+            resp = self.client.chat.completions.create(
+                model=self.model_name,
+                temperature=self.temperature,
+                max_tokens=self.max_tokens,
+                messages=msgs,
+            )
+            llm_text = (resp.choices[0].message.content or "").strip()
+
+            # ضبط التنسيق بقوة: ضمان سطر مستقل للعناوين
+            def _normalize_blocks(txt: str) -> str:
+              tx = txt.replace("\r", "")
+              tx = tx.replace("<b>الشرح المختصر:</b>", "\n<b>الشرح المختصر:</b>\n")
+              tx = tx.replace("<b>التوصيات:</b>", "\n<b>التوصيات:</b>\n")
+              # ✅ إصلاح تكرار التوصيات: حول أي نقاط إلى <ul> واحدة فقط
+              lines = [ln.strip("• ").strip() for ln in tx.splitlines() if ln.strip().startswith("•")]
+              if lines:
+                  bullet_html = "<ul>" + "".join(f"<li>{ln}</li>" for ln in lines) + "</ul>"
+                  # نحذف النص الأصلي للنقاط لتفادي التكرار
+                  tx = re.sub(r"•.*", "", tx)
+                  tx = tx.strip() + "\n" + bullet_html
+              return tx.strip()
+
+            html_parts: List[str] = []
+            if is_first and facts:
+                html_parts.append(self._summary_block(company_name, facts))
+
+            llm_text = _normalize_blocks(llm_text)
+
+            # لو ما أدرج عنوان "التوصيات" نضمنه
+            if "<b>التوصيات:</b>" not in llm_text:
+                llm_text += "\n<b>التوصيات:</b>\n<ul><li>راقب المصروفات التشغيلية.</li><li>حسّن دورة التحصيل.</li><li>تابع اتجاه التدفق النقدي.</li></ul>"
+
+            html_parts.append(llm_text)
+
+            # ذاكرة محادثة خفيفة
+            self.history.append({"role": "user", "content": question})
+            self.history.append({"role": "assistant", "content": llm_text})
+
+            # مصادر
+            all_srcs = list(dict.fromkeys((rag_sources or []) + ["البيانات المالية المرفوعة من المستخدم"]))
+            return {"html": "\n".join(html_parts), "sources": all_srcs, "is_first": is_first}
+
+        except Exception as e:
+            html = []
+            if is_first and facts:
+                html.append(self._summary_block(company_name, facts))
+            html.append("<b>الشرح المختصر:</b>\nتعذر استدعاء النموذج.")
+            html.append(f"<b>التوصيات:</b>\n<ul><li>الخطأ: {e}</li><li>تحقق من الإعدادات.</li></ul>")
+            return {"html": "\n".join(html), "sources": rag_sources, "is_first": is_first}
+
+
+rakeem_engine = RakeemChatEngine()
