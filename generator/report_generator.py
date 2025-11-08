@@ -1,10 +1,9 @@
-# generator/report_generator.py
 import os
+import importlib.util
 import pandas as pd
 from typing import Dict, List, Optional
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 
-# === Utilities ===
 def _sar(v):
     """صيغة ريال سعودية منسقة"""
     try:
@@ -33,7 +32,10 @@ def _df_to_html(name: str, df: pd.DataFrame) -> str:
     table_html = df.to_html(classes='table', index=False, border=0)
     return title_html + table_html
 
-# === Core Generator ===
+def _module_available(name: str) -> bool:
+    """يتحقق من توفر مكتبة معينة"""
+    return importlib.util.find_spec(name) is not None
+
 def generate_financial_report(
     *,
     company_name: str = "",
@@ -43,32 +45,21 @@ def generate_financial_report(
     data_tables: Optional[Dict[str, pd.DataFrame]] = None,
     template_path: str = "generator/report_template.html",
     output_pdf: str = "financial_report.pdf",
-):
-    """ينشئ تقرير مالي PDF أو HTML حسب توفر المكتبات"""
+) -> str:
+    """ينشئ تقرير مالي (دائمًا PDF سواء محلي أو في Streamlit Cloud)"""
 
-    # ⚠️ استيراد كسول لـ WeasyPrint داخل الدالة وبالتقاط كل الأخطاء
-    try:
-        from weasyprint import HTML  # قد يرمي OSError إذا Pango/Cairo غير متوفرة
-        _has_weasy = True
-    except Exception as e:
-        print(f"[تنبيه] تعذّر تحميل WeasyPrint: {e}")
-        HTML = None
-        _has_weasy = False
-
-    # إعداد بيئة القالب
     env = Environment(
         loader=FileSystemLoader(os.path.dirname(template_path) or "."),
         autoescape=select_autoescape(["html"]),
     )
     tpl = env.get_template(os.path.basename(template_path))
 
-    # تحويل الجداول إلى HTML
+    # بناء HTML
     tables_html = ""
     if data_tables:
         for name, df in data_tables.items():
             tables_html += _df_to_html(name, df)
 
-    # توليد HTML النهائي
     html = tpl.render(
         base_url=os.getcwd(),
         company_name=company_name or "شركة غير محددة",
@@ -86,19 +77,34 @@ def generate_financial_report(
         recommendations=recommendations or [],
     )
 
-    # نحفظ HTML دائمًا
-    html_path = "final_report.html"
+    html_path = os.path.abspath("final_report.html")
     with open(html_path, "w", encoding="utf-8") as f:
         f.write(html)
 
-    # نحاول PDF فقط لو WeasyPrint تعمل
-    if _has_weasy and HTML is not None:
+    # --- أولوية 1: WeasyPrint ---
+    if _module_available("weasyprint"):
         try:
+            from weasyprint import HTML
             HTML(string=html, base_url=os.getcwd()).write_pdf(output_pdf)
+            print("✅ PDF تم توليده باستخدام WeasyPrint.")
             return output_pdf
         except Exception as e:
-            print(f"[تحذير] فشل توليد PDF عبر WeasyPrint: {e}")
-            return html_path
-    else:
-        print("[تنبيه] WeasyPrint غير متاحة، تم حفظ التقرير كـ HTML.")
-        return html_path
+            print(f"[تحذير] WeasyPrint فشل: {e}")
+
+    # --- أولوية 2: xhtml2pdf (يعمل في Streamlit Cloud) ---
+    if _module_available("xhtml2pdf"):
+        try:
+            from xhtml2pdf import pisa
+            with open(output_pdf, "wb") as pdf_file:
+                pisa_status = pisa.CreatePDF(html, dest=pdf_file, encoding="utf-8")
+            if not pisa_status.err:
+                print("✅ PDF تم توليده باستخدام xhtml2pdf (متوافق مع Streamlit Cloud).")
+                return output_pdf
+            else:
+                print("[تحذير] xhtml2pdf فشل أثناء التحويل.")
+        except Exception as e:
+            print(f"[تحذير] فشل xhtml2pdf: {e}")
+
+    # --- Fallback ---
+    print("⚠️ لم ينجح أي محرك PDF — تم حفظ HTML فقط.")
+    return html_path
