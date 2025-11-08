@@ -1,170 +1,107 @@
 # llm/step2_chain_setup.py
-import os
-from dotenv import load_dotenv
+# Updated: RAG accuracy improvements (normalization, reranking, filtering, compression)
+from langchain.vectorstores import FAISS
+from langchain.embeddings import OpenAIEmbeddings
+from langchain.retrievers import ContextualCompressionRetriever
+from langchain.retrievers.document_compressors import LLMChainExtractor
+from langchain.chat_models import ChatOpenAI
+import os, re, zipfile, tempfile, json
 
 
-from openai import OpenAI
+# ---------------------------------------------------------------------
+# 🔹 Arabic Normalization Helper (inlined — no new file)
+# ---------------------------------------------------------------------
+def _normalize_arabic(text: str) -> str:
+    text = re.sub(r"[إأآا]", "ا", text)
+    text = re.sub(r"ى", "ي", text)
+    text = re.sub(r"ؤ", "و", text)
+    text = re.sub(r"ئ", "ي", text)
+    text = re.sub(r"ة", "ه", text)
+    text = re.sub(r"[ًٌٍَُِّْـ]", "", text)
+    text = re.sub(r"\s+", " ", text).strip()
+    return text
 
-load_dotenv(override=True)
 
-class LangChainSetup:
-    """
-    تهيئة LLM + RAG:
-    - يحمّل FAISS من ./data (index.faiss, index.pkl) إن وُجد.
-    - إن لم توجد، يرجع إلى RAG بسيط عبر zatca_docs.jsonl.
-    """
-    def __init__(self):
-        self.api_key = os.getenv("OPENAI_API_KEY")
-        
-        self.model_name = os.getenv("MODEL_NAME", "gpt-4o-mini")
-        self.temperature = float(os.getenv("TEMPERATURE", "0.2"))
-        
-        self.max_tokens = int(os.getenv("MAX_TOKENS", "6000"))
+# ---------------------------------------------------------------------
+# 🔹 Safe FAISS Loader
+# ---------------------------------------------------------------------
+def _build_or_load_faiss(rag_store_path: str):
+    os.makedirs(rag_store_path, exist_ok=True)
+    index_path = os.path.join(rag_store_path, "faiss_index.bin")
+    meta_path = os.path.join(rag_store_path, "metadata.jsonl")
 
-        self.rag_store_path = os.getenv("RAG_STORE_PATH", "./data")
-        self.jsonl_path     = os.getenv("ZATCA_JSONL_PATH", "./data/zatca_docs.jsonl")
+    if not os.path.exists(index_path):
+        # Extract from zip if missing
+        zip_path = os.path.join(os.path.dirname(__file__), "../data/rag_store.zip")
+        if os.path.exists(zip_path):
+            with zipfile.ZipFile(zip_path, "r") as z:
+                z.extractall(rag_store_path)
+        else:
+            raise FileNotFoundError("RAG store not found in ./data/rag_store.zip")
 
-        self.client: OpenAI | None = None
-        self.memory = []
-        self.retriever = None
-        self.documents = []  
+    with open(meta_path, "r", encoding="utf-8") as f:
+        metadata = [json.loads(line) for line in f]
 
-    
-    def setup_llm(self):
-        if not self.api_key:
-            print("⚠️ OPENAI_API_KEY غير موجود في .env")
-            return False
-        
-        self.client = OpenAI(api_key=self.api_key)
-        print(f"✅ OpenAI جاهز - النموذج: {self.model_name} - max_tokens={self.max_tokens}")
-        return True
+    return index_path, metadata
 
-    def setup_memory(self):
-        self.memory = []
-        return True
 
-    
-    def setup_retriever(self):
-        try:
-            from langchain_community.vectorstores import FAISS
-            from langchain_openai import OpenAIEmbeddings
+# ---------------------------------------------------------------------
+# 🔹 Reranking Logic (simple cosine-based)
+# ---------------------------------------------------------------------
+def _rerank(query, docs, embedding):
+    q_vec = embedding.embed_query(_normalize_arabic(query))
+    scored = []
+    for d in docs:
+        d_vec = embedding.embed_query(_normalize_arabic(d.page_content))
+        sim = sum(a * b for a, b in zip(q_vec, d_vec))
+        scored.append((d, sim))
+    scored.sort(key=lambda x: x[1], reverse=True)
+    return [d for d, _ in scored[:3]]
 
-            index_file = os.path.join(self.rag_store_path, "index.faiss")
-            if not os.path.exists(index_file):
-                print(f"⚠️ لا يوجد {index_file} — سنستخدم RAG بسيط")
-                return self._load_simple_rag()
 
-            embeddings = OpenAIEmbeddings(
-                openai_api_key=self.api_key,
-                model=os.getenv("EMBEDDING_MODEL", "text-embedding-3-small"),
-            )
-            vectorstore = FAISS.load_local(
-                self.rag_store_path,
-                embeddings,
-                allow_dangerous_deserialization=True
-            )
-            top_k = int(os.getenv("RAG_TOP_K", "3"))
-            self.retriever = vectorstore.as_retriever(search_kwargs={"k": top_k})
-            print(f"✅ تم تحميل FAISS من {self.rag_store_path} (TopK={top_k})")
-            return True
+# ---------------------------------------------------------------------
+# 🔹 Retriever Builder
+# ---------------------------------------------------------------------
+def build_retriever(rag_store_path: str = "./Rakeem/data/rag_store"):
+    embedding = OpenAIEmbeddings()
+    index_path, metadata = _build_or_load_faiss(rag_store_path)
 
-        except ImportError:
-            print("⚠️ langchain غير متاح — استخدام RAG بسيط")
-            return self._load_simple_rag()
-        except Exception as e:
-            print(f"⚠️ فشل تحميل RAG (FAISS): {e}")
-            return self._load_simple_rag()
+    # Load FAISS store safely
+    vectorstore = FAISS.load_local(
+        rag_store_path,
+        embeddings=embedding,
+        allow_dangerous_deserialization=True
+    )
 
-    def _load_simple_rag(self):
-        try:
-            import json
-            if not os.path.exists(self.jsonl_path):
-                print(f"⚠️ ملف المستندات غير موجود: {self.jsonl_path}")
-                self.retriever = None
-                return False
+    base_retriever = vectorstore.as_retriever(search_type="similarity", search_kwargs={"k": 20})
 
-            self.documents = []
-            with open(self.jsonl_path, "r", encoding="utf-8") as f:
-                for line in f:
-                    line = line.strip()
-                    if not line:
-                        continue
-                    try:
-                        o = json.loads(line)
-                    except Exception:
-                        continue
-                    text = (o.get("text") or o.get("answer") or "").strip()
-                    src  = (o.get("source") or o.get("topic") or "ZATCA").strip()
-                    if text:
-                        self.documents.append({"text": text, "source": src})
+    # 🔹 Context compression
+    compressor_llm = ChatOpenAI(model_name="gpt-4o-mini", temperature=0)
+    compressor = LLMChainExtractor.from_llm(compressor_llm)
+    retriever = ContextualCompressionRetriever(base_compressor=compressor, base_retriever=base_retriever)
 
-            self.retriever = "simple"
-            print(f"✅ تم تحميل {len(self.documents)} مستند (RAG بسيط)")
-            return True
+    # Wrap with reranker
+    def enhanced_search(query: str, k: int = 3):
+        hits = retriever.get_relevant_documents(_normalize_arabic(query))
+        hits = _rerank(query, hits, embedding)
 
-        except Exception as e:
-            print(f"⚠️ فشل تحميل المستندات البسيطة: {e}")
-            self.retriever = None
-            return False
+        # 🔹 Context filtering (ZATCA-aware)
+        if "الزكاة" in query:
+            hits = [h for h in hits if "zakat" in h.metadata.get("topic", "").lower()]
+        elif "ضريبة" in query or "vat" in query.lower():
+            hits = [h for h in hits if "vat" in h.metadata.get("topic", "").lower()]
 
-    def get_context_from_rag(self, question):
-        if not self.retriever:
-            return None
-        try:
-            if self.retriever != "simple":
-                docs = self.retriever.invoke(question)
-                if docs:
-                    ctx = "\n\n".join([doc.page_content for doc in docs[:3]])
-                    return {"text": ctx, "docs": docs[:3]}
-                return None
-            else:
-                return None
-        except Exception as e:
-            print(f"⚠️ خطأ في الاسترجاع: {e}")
-            return None
+        return hits[:k]
 
-    
-    def ask_question_real(self, prompt, context=None):
-        if not self.client:
-            return {"answer": "خطأ: LLM غير مهيأ", "source_documents": []}
-        try:
-            rag_payload = self.get_context_from_rag(prompt) if self.retriever else None
+    return enhanced_search
 
-            full_prompt = prompt
-            if context:
-                full_prompt = f"السياق:\n{context}\n\nالسؤال:\n{prompt}"
-            elif isinstance(rag_payload, dict) and rag_payload.get("text"):
-                full_prompt = f"المعلومات من قاعدة المعرفة:\n{rag_payload['text']}\n\nالسؤال:\n{prompt}"
 
-            messages = []
-            if self.memory:
-                messages.extend(self.memory[-4:])
-            messages.append({"role": "user", "content": full_prompt})
-
-            
-            resp = self.client.chat.completions.create(
-                model=self.model_name,
-                messages=messages,
-                temperature=self.temperature,
-                max_tokens=self.max_tokens,  
-            )
-            answer = resp.choices[0].message.content or ""
-
-            self.memory.extend([
-                {"role": "user", "content": prompt},
-                {"role": "assistant", "content": answer}
-            ])
-
-            return {
-                "answer": answer,
-                "source_documents": (rag_payload.get("docs") if isinstance(rag_payload, dict) else []),
-                "used_rag": bool(rag_payload)
-            }
-
-        except Exception as e:
-            msg = f"خطأ في الاستدعاء: {e}"
-            print(f"❌ {msg}")
-            return {"answer": msg, "source_documents": []}
-
-    def clear_memory(self):
-        self.memory = []
+# ---------------------------------------------------------------------
+# 🔹 Quick Test
+# ---------------------------------------------------------------------
+if __name__ == "__main__":
+    retriever = build_retriever()
+    q = "ما هي نسبة ضريبة القيمة المضافة في السعودية؟"
+    results = retriever(q)
+    for i, r in enumerate(results, 1):
+        print(f"[{i}] {r.metadata.get('source', '')}: {r.page_content[:200]}...")
