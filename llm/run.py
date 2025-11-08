@@ -3,7 +3,6 @@ from __future__ import annotations
 import os, json, glob, math
 from typing import List, Dict, Any, Optional, Tuple
 import pandas as pd
-import re
 
 # ========= Optional: يستخدم LangChain للـ FAISS =========
 _EMBED_READY = True
@@ -61,7 +60,6 @@ def _df_facts(df: Optional[pd.DataFrame]) -> Dict[str, Any]:
     facts["total_cashflow"] = _safe_sum(cf)  if cf  is not None else 0.0
     facts["period"] = _company_period(df)
 
-    # اتجاهات بسيطة MoM (إن وُجد تاريخ)
     if "date" in df.columns:
         d = df[["date"]].copy()
         d["date"] = pd.to_datetime(d["date"], errors="coerce")
@@ -73,7 +71,6 @@ def _df_facts(df: Optional[pd.DataFrame]) -> Dict[str, Any]:
             for col in ["revenue", "expenses", "profit", "cash_flow"]:
                 if col in df2.columns:
                     s = pd.to_numeric(df2[col], errors="coerce").fillna(0)
-                    # آخر قيمتين
                     if len(s) >= 2:
                         last = float(s.iloc[-1])
                         prev = float(s.iloc[-2])
@@ -114,19 +111,14 @@ def _forecast_snapshot(df: Optional[pd.DataFrame]) -> Dict[str, Any]:
 
 
 # =========================
-# RAG: فهرسة ملفات المشروع فعليًا
+# RAG: فهرسة ملفات المشروع
 # =========================
 def _collect_repo_texts() -> List[Tuple[str, str]]:
-    """
-    يرجّع [(path, text)] من ملفات المشروع المهمة لربط الـLLM بالسياق التقني.
-    تشمل engine/, generator/, ui/app.py, llm/*.py (بدون هذا الملف لتفادي الدوران).
-    """
     paths: List[str] = []
     paths += glob.glob("engine//*.py", recursive=True)
     paths += glob.glob("generator//*.py", recursive=True)
-    paths += glob.glob("ui/app.py")  # مفيد لسياق الرسوم والتصميم العام
-    paths += [p for p in glob.glob("llm/*.py") if not p.endswith("run.py")]  # بقية الـLLM
-
+    paths += glob.glob("ui/app.py")
+    paths += [p for p in glob.glob("llm/*.py") if not p.endswith("run.py")]
     out: List[Tuple[str, str]] = []
     for p in paths:
         try:
@@ -138,79 +130,164 @@ def _collect_repo_texts() -> List[Tuple[str, str]]:
             continue
     return out
 
-def _build_or_load_faiss(index_dir: str = "./data/rag_index") -> Tuple[Any, List[str]]:
-    """
-    يبني أو يحمل فهرس FAISS من ملفات المشروع.
-    يرجّع (retriever_or_None, source_paths)
-    """
+
+def _build_or_load_faiss(index_dir: str = None) -> Tuple[Any, List[str]]:
     if not _EMBED_READY:
         return None, []
 
-    os.makedirs(index_dir, exist_ok=True)
-    idx_file = os.path.join(index_dir, "index.faiss")
-    meta_file = os.path.join(index_dir, "index.pkl")
+    env_path = os.getenv("RAG_STORE_PATH", "").strip() or "./Rakeem/data/rag_store"
+    candidates = [env_path, "./data/rag_store", "./rag_store", "/mnt/data/rag_store"]
+    zip_candidates = [os.path.join(p, "rag_store.zip") for p in [".", "./data", "./Rakeem/data", "/mnt/data"]]
 
-    try:
-        if os.path.exists(idx_file) and os.path.exists(meta_file):
-            # تحميل موجود
-            embeddings = OpenAIEmbeddings(model=os.getenv("EMBEDDING_MODEL", "text-embedding-3-small"),
-                                          openai_api_key=os.getenv("OPENAI_API_KEY"))
-            vs = FAISS.load_local(index_dir, embeddings, allow_dangerous_deserialization=True)
-            retriever = vs.as_retriever(search_kwargs={"k": int(os.getenv("RAG_TOP_K", "4"))})
-            # حاول قراءة قائمة المصادر المخزّنة
-            src_list = []
+    def _ensure_store_dir(p: str) -> str:
+        if os.path.isdir(p):
+            return p
+        for zc in zip_candidates + ["/mnt/data/rag_store.zip"]:
             try:
-                with open(os.path.join(index_dir, "sources.json"), "r", encoding="utf-8") as f:
-                    src_list = json.load(f)
+                if os.path.exists(zc):
+                    os.makedirs(p, exist_ok=True)
+                    import zipfile
+                    with zipfile.ZipFile(zc, "r") as z:
+                        z.extractall(p)
+                    return p
             except Exception:
                 pass
-            return retriever, src_list
+        return p
 
-        # بناء جديد
+    store_dir = None
+    for c in candidates:
+        d = _ensure_store_dir(c)
+        if os.path.isdir(d):
+            store_dir = d
+            break
+    if store_dir is None:
+        return _build_or_load_repo_index()
+
+    faiss_a = os.path.join(store_dir, "index.faiss")
+    pkl_a   = os.path.join(store_dir, "index.pkl")
+    faiss_b = os.path.join(store_dir, "faiss_index.bin")
+    meta_b  = os.path.join(store_dir, "metadata.jsonl")
+    jsonl_fallback = os.path.join(store_dir, "zatca_docs.jsonl")
+
+    try:
+        embeddings = OpenAIEmbeddings(model=os.getenv("EMBEDDING_MODEL", "text-embedding-3-small"),
+                                      openai_api_key=os.getenv("OPENAI_API_KEY"))
+
+        if os.path.exists(faiss_a) and os.path.exists(pkl_a):
+            vs = FAISS.load_local(store_dir, embeddings, allow_dangerous_deserialization=True)
+            retriever = vs.as_retriever(search_kwargs={"k": int(os.getenv("RAG_TOP_K", "6"))})
+            return retriever, ["ZATCA FAISS (index.faiss/index.pkl)"]
+
+        if os.path.exists(faiss_b) and os.path.exists(meta_b):
+            from langchain.schema import Document
+            docs = []
+            with open(meta_b, "r", encoding="utf-8") as f:
+                for line in f:
+                    try:
+                        o = json.loads(line.strip())
+                    except Exception:
+                        continue
+                    content = (o.get("text") or o.get("answer") or "").strip()
+                    if not content:
+                        continue
+                    src = (o.get("source") or o.get("topic") or "ZATCA").strip()
+                    docs.append(Document(page_content=content, metadata={"source": src}))
+
+            if not docs and os.path.exists(jsonl_fallback):
+                docs = _docs_from_jsonl(jsonl_fallback)
+
+            if docs:
+                vs = FAISS.from_documents(docs, embedding=embeddings)
+                vs.save_local(store_dir)
+                retriever = vs.as_retriever(search_kwargs={"k": int(os.getenv("RAG_TOP_K", "6"))})
+                return retriever, ["ZATCA FAISS (rebuilt from metadata.jsonl)"]
+
+        if os.path.exists(jsonl_fallback):
+            docs = _docs_from_jsonl(jsonl_fallback)
+            if docs:
+                vs = FAISS.from_documents(docs, embedding=embeddings)
+                vs.save_local(store_dir)
+                retriever = vs.as_retriever(search_kwargs={"k": int(os.getenv("RAG_TOP_K", "6"))})
+                return retriever, ["ZATCA JSONL (built to FAISS)"]
+
+        return _build_or_load_repo_index()
+
+    except Exception:
+        return _build_or_load_repo_index()
+
+
+def _docs_from_jsonl(path: str):
+    from langchain.schema import Document
+    docs = []
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    o = json.loads(line)
+                except Exception:
+                    continue
+                text = (o.get("text") or o.get("answer") or "").strip()
+                src  = (o.get("source") or o.get("topic") or "ZATCA").strip()
+                if text:
+                    docs.append(Document(page_content=text, metadata={"source": src}))
+    except Exception:
+        pass
+    return docs
+
+
+def _build_or_load_repo_index() -> Tuple[Any, List[str]]:
+    try:
         raw = _collect_repo_texts()
         if not raw:
             return None, []
         splitter = RecursiveCharacterTextSplitter(chunk_size=1600, chunk_overlap=150)
+        from langchain.schema import Document
         docs, srcs = [], []
         for path, text in raw:
             for chunk in splitter.split_text(text):
-                docs.append({"page_content": chunk, "metadata": {"source": path}})
+                docs.append(Document(page_content=chunk, metadata={"source": path}))
                 srcs.append(path)
-
-        # حول docs إلى Document للكلاس
-        from langchain.schema import Document
-        lc_docs = [Document(page_content=d["page_content"], metadata=d["metadata"]) for d in docs]
 
         embeddings = OpenAIEmbeddings(model=os.getenv("EMBEDDING_MODEL", "text-embedding-3-small"),
                                       openai_api_key=os.getenv("OPENAI_API_KEY"))
-        vs = FAISS.from_documents(lc_docs, embedding=embeddings)
-        vs.save_local(index_dir)
-
-        # خزّن قائمة المسارات للمصادر
-        try:
-            uniq_srcs = list(dict.fromkeys(srcs))
-            with open(os.path.join(index_dir, "sources.json"), "w", encoding="utf-8") as f:
-                json.dump(uniq_srcs, f, ensure_ascii=False, indent=2)
-        except Exception:
-            pass
-
+        vs = FAISS.from_documents(docs, embedding=embeddings)
+        vs.save_local("./data/rag_index")
         retriever = vs.as_retriever(search_kwargs={"k": int(os.getenv("RAG_TOP_K", "4"))})
         return retriever, list(dict.fromkeys(srcs))
     except Exception:
         return None, []
 
 
+# =========================
+# Retrieval Context Helper
+# =========================
 def _retrieve_context(retriever, query: str) -> Tuple[str, List[str]]:
+    """Fetch top documents from retriever (FAISS / JSONL / repo) with graceful fallbacks."""
     if retriever is None:
         return "", []
     try:
-        docs = retriever.invoke(query)
+        try:
+            docs = retriever.invoke(query)
+        except Exception:
+            docs = retriever.get_relevant_documents(query)
         if not docs:
             return "", []
-        take = docs[:4]
-        txt = "\n\n".join(d.page_content[:1200] for d in take)
-        srcs = list(dict.fromkeys([d.metadata.get("source", "repo") for d in take]))
-        return txt, srcs
+        selected = docs[:4]
+        combined_text = "\n\n".join(
+            (getattr(d, "page_content", "") or "")[:1200] for d in selected if d
+        )
+        sources = list(
+            dict.fromkeys(
+                [
+                    (getattr(getattr(d, "metadata", {}), "get", lambda *_: "غير محدد")("source"))
+                    for d in selected
+                ]
+            )
+        )
+        return combined_text, sources
     except Exception:
         return "", []
 
@@ -219,43 +296,29 @@ def _retrieve_context(retriever, query: str) -> Tuple[str, List[str]]:
 # Engine
 # =========================
 class RakeemChatEngine:
-    """
-    محرك محادثة احترافي 100% LLM:
-    - يعتمد على ملف المستخدم (df) + RAG من ملفات المشروع.
-    - السؤال الأول: يُظهر ملخص مالي + الشرح + التوصيات.
-    - بقية الأسئلة: الشرح + التوصيات فقط.
-    - إذا سأل عن "المصادر" تعرض فقط عند الطلب.
-    - إذا سأل "اعرض الملخص المالي" يعرض الملخص فقط (كما في أول سؤال).
-    """
-
     def __init__(self):
-        self.history: List[Dict[str, str]] = []  # [ {role, content} ... ]
+        self.history: List[Dict[str, str]] = []
         self.client: Optional["OpenAI"] = None
         self.model_name = os.getenv("MODEL_NAME", "gpt-4o-mini")
         self.temperature = float(os.getenv("TEMPERATURE", "0.15"))
         self.max_tokens = int(os.getenv("MAX_TOKENS", "1400"))
-        # LLM
         self._init_llm()
-        # RAG (فايس)
         self.retriever, self.repo_sources = _build_or_load_faiss()
 
     def _init_llm(self):
         api_key = os.getenv("OPENAI_API_KEY")
-        if OpenAI is None or not api_key:
-            self.client = None
-            return
-        self.client = OpenAI(api_key=api_key)
+        self.client = OpenAI(api_key=api_key) if (OpenAI and api_key) else None
 
-    # ---------- Blocks ----------
     def _summary_block(self, company_name: str, facts: Dict[str, Any]) -> str:
-        parts = []
-        parts.append(f"<b>التحليل المالي للشركة: {company_name or 'شركة غير محددة'}</b><br><br>")
-        parts.append("<b>ملخص مالي مختصر:</b>")
-        parts.append("<ul>")
-        parts.append(f"<li>إجمالي الإيرادات: {_fmt_sar(facts.get('total_revenue', 0))}</li>")
-        parts.append(f"<li>إجمالي المصروفات: {_fmt_sar(facts.get('total_expenses', 0))}</li>")
-        parts.append(f"<li>صافي الربح: {_fmt_sar(facts.get('total_profit', 0))}</li>")
-        parts.append(f"<li>التدفق النقدي: {_fmt_sar(facts.get('total_cashflow', 0))}</li>")
+        parts = [
+            f"<b>التحليل المالي للشركة: {company_name or 'شركة غير محددة'}</b><br><br>",
+            "<b>ملخص مالي مختصر:</b>",
+            "<ul>",
+            f"<li>إجمالي الإيرادات: {_fmt_sar(facts.get('total_revenue', 0))}</li>",
+            f"<li>إجمالي المصروفات: {_fmt_sar(facts.get('total_expenses', 0))}</li>",
+            f"<li>صافي الربح: {_fmt_sar(facts.get('total_profit', 0))}</li>",
+            f"<li>التدفق النقدي: {_fmt_sar(facts.get('total_cashflow', 0))}</li>",
+        ]
         if facts.get("period"):
             parts.append(f"<li>الفترة: {facts['period']}</li>")
         parts.append("</ul>")
@@ -282,9 +345,6 @@ class RakeemChatEngine:
 
     def _build_prompt(self, user_q: str, facts: Dict[str, Any], fc: Dict[str, Any],
                       repo_context: str, is_followup: bool) -> str:
-        """
-        برومبت عربي صارم + تعليمات تنسيق.
-        """
         allowed_text = self._allowed_values_text(facts, fc)
         forecast_text = ""
         if fc.get("ok"):
@@ -292,34 +352,27 @@ class RakeemChatEngine:
                 f"نتيجة التنبؤ (Holt): اتجاه {fc['trend']} متوقع في {fc['target']} "
                 f"بنسبة تقريبية {abs(fc['change_pct']):.2f}%."
             )
-
         task_common = (
             "اكتب الرد بالعربية الفصحى، بصياغة احترافية، دون أي إيموجي أو زخرفة.\n"
-            "التزم بالقيم المسموح بها فقط؛ لا تخترع أرقامًا جديدة. "
-            "اربط الاستنتاجات مباشرة ببيانات المستخدم والتنبؤ إن توفر.\n"
-            "صيغة الإخراج واجبة (بدون عناوين إضافية):\n"
+            "التزم بالقيم المسموح بها فقط؛ لا تخترع أرقامًا جديدة.\n"
+            "صيغة الإخراج واجبة:\n"
             "<b>الشرح المختصر:</b>\n"
-            "فقرة من 70–120 كلمة، تربط السؤال ببيانات df وبالمنطق المالي (وRAG عند الحاجة).\n"
+            "فقرة من 70–120 كلمة.\n"
             "<b>التوصيات:</b>\n"
-            "• 3 إلى 5 نقاط عملية وواقعية وذات صلة مباشرة بالسؤال.\n"
+            "• 3 إلى 5 نقاط عملية مباشرة.\n"
         )
-
-        first_extra = "" if is_followup else (
-            "في إجابة السؤال الأول، ركّز على قراءة الاتجاه العام ثم قدّم توصيات مختصرة.\n"
-        )
-
-        prompt = (
-            "أنت مستشار مالي عربي محترف. لديك:\n"
-            "1) بيانات مالية فعلية من المستخدم (df).\n"
-            "2) تنبؤ Holt مبني على df (إن توفر).\n"
-            "3) سياق تقني/تشغيلي من ملفات المشروع (RAG).\n\n"
-            f"القيم المسموح بها:\n{allowed_text}\n\n"
-            f"سياق التنبؤ:\n{forecast_text or 'لا يوجد تنبؤ صالح.'}\n\n"
-            f"سياق RAG (اختصار من ملفات المشروع):\n{repo_context[:2000]}\n\n"
+        first_extra = "" if is_followup else "في إجابة السؤال الأول، ركّز على الاتجاه العام ثم قدم توصيات.\n"
+        return (
+            "أنت مستشار مالي عربي محترف.\n"
+            "1) بيانات مالية من المستخدم.\n"
+            "2) تنبؤ Holt.\n"
+            "3) سياق RAG.\n\n"
+            f"القيم:\n{allowed_text}\n\n"
+            f"سياق التنبؤ:\n{forecast_text or 'لا يوجد تنبؤ.'}\n\n"
+            f"سياق RAG:\n{repo_context[:2000]}\n\n"
             f"سؤال المستخدم: {user_q}\n\n"
             f"{task_common}{first_extra}"
         )
-        return prompt
 
     # ---------- Public ----------
     def answer(self, question: str, df: Optional[pd.DataFrame] = None,
@@ -329,60 +382,60 @@ class RakeemChatEngine:
 
         low = question.strip().lower()
         is_first = len([m for m in self.history if m["role"] == "assistant"]) == 0
-
         facts = _df_facts(df) if df is not None else {}
         fc    = _forecast_snapshot(df) if df is not None else {"ok": False}
 
-        # طلب مصادر صريح
         if any(w in low for w in ["مصادر", "المراجع", "source", "sources"]):
-          _, rag_srcs = _retrieve_context(self.retriever, question)
-          all_srcs = list(dict.fromkeys((rag_srcs or []) + [
-              "البيانات المالية المرفوعة من المستخدم",
-              "هيئة الزكاة والضريبة والجمارك (ZATCA)"
-          ]))
-          html = "<b>المصادر المتاحة:</b><ul>" + "".join(f"<li>{s}</li>" for s in all_srcs) + "</ul>"
-          return {"html": html, "sources": all_srcs, "is_first": False}
+            _, rag_srcs = _retrieve_context(self.retriever, question)
+            all_srcs = list(dict.fromkeys((rag_srcs or []) + ["البيانات المالية"]))
+            html = "<b>المصادر:</b><ul>" + "".join(f"<li>{s}</li>" for s in all_srcs) + "</ul>"
+            return {"html": html, "sources": all_srcs, "is_first": False}
 
-        # طلب الملخص المالي صريح
         if "اعرض الملخص المالي" in question or "الملخص المالي" == question.strip():
-          if not facts:
-              return {"html": "لا توجد بيانات مالية لعرض الملخص.", "sources": [], "is_first": False}
-          from engine.taxes import compute_vat, compute_zakat
-          zakat = compute_zakat(df) if df is not None else 0
-          vat = compute_vat(df) if df is not None else 0
+            if not facts:
+                return {"html": "لا توجد بيانات مالية.", "sources": [], "is_first": False}
+            return {"html": self._summary_block(company_name, facts), "sources": ["البيانات المالية"], "is_first": False}
 
-          html = "<b>الملخص المالي:</b><ul>"
-          html += f"<li>إجمالي الإيرادات: {_fmt_sar(facts.get('total_revenue', 0))}</li>"
-          html += f"<li>إجمالي المصروفات: {_fmt_sar(facts.get('total_expenses', 0))}</li>"
-          html += f"<li>صافي الربح: {_fmt_sar(facts.get('total_profit', 0))}</li>"
-          html += f"<li>التدفق النقدي: {_fmt_sar(facts.get('total_cashflow', 0))}</li>"
-          html += f"<li>الضريبة (VAT): {_fmt_sar(vat)}</li>"
-          html += f"<li>الزكاة (Zakat): {_fmt_sar(zakat)}</li>"
-          if facts.get("period"):
-              html += f"<li>الفترة: {facts['period']}</li>"
-          html += "</ul>"
-          return {"html": html, "sources": ["البيانات المالية", "ZATCA"], "is_first": False}
-
-        # سياق RAG
         rag_text, rag_sources = _retrieve_context(self.retriever, question)
 
-        # برومبت
-        prompt = self._build_prompt(question, facts, fc, rag_text, is_followup=not is_first)
+        # ✅ هنا التعديل الجديد
+        tax_keywords = ["ضريبة", "الضريبة", "زكاة", "الزكاة", "تهرب", "التهرب", "مخالفة", "غرامة", "إقرار", "فاتورة"]
+        is_tax_query = any(w in question for w in tax_keywords)
 
-        # لو ما فيه LLM
+        if is_tax_query:
+          prompt = f"""
+أنت خبير ضريبي سعودي متخصص في أنظمة هيئة الزكاة والضريبة والجمارك (ZATCA).
+
+استخدم حصريًا النصوص التالية للإجابة بدقة على السؤال أدناه. لا تضف أو تخترع أي معلومات من خارجها.
+إذا لم يكن النص يحتوي على الإجابة، قل بوضوح: "لم يرد في مستندات الهيئة نص محدد بخصوص هذا الموضوع."
+
+المراجع القانونية المتاحة (من قاعدة ZATCA):
+--------------------------------
+{rag_text or 'لم يتم العثور على أي نصوص ذات صلة.'}
+--------------------------------
+
+السؤال:
+{question}
+
+اكتب الرد بالعربية الفصحى الرسمية بأسلوب تقريري واضح.
+<b>الشرح المختصر:</b>
+اشرح بإيجاز النقاط النظامية الدقيقة المتعلقة بالسؤال استنادًا للنصوص أعلاه.
+<b>التوصيات:</b>
+• 2 إلى 4 توصيات عملية لضمان الامتثال أو التصحيح وفق النظام.
+"""
+
+        else:
+            prompt = self._build_prompt(question, facts, fc, rag_text, is_followup=not is_first)
+
         if self.client is None:
-            html = []
-            if is_first and facts:
-                html.append(self._summary_block(company_name, facts))
-            html.append("<b>الشرح المختصر:</b>\nتمت معالجة السؤال محليًا لكن اتصال الـLLM غير متاح.")
-            html.append("<b>التوصيات:</b>\n<ul><li>تفعيل اتصال النموذج.</li><li>إعادة المحاولة.</li></ul>")
+            html = ["<b>الشرح المختصر:</b>\nاتصال النموذج غير متاح."]
+            html.append("<b>التوصيات:</b>\n<ul><li>تفعيل الاتصال وإعادة المحاولة.</li></ul>")
             return {"html": "\n".join(html), "sources": rag_sources, "is_first": is_first}
 
-        # نطلب من الـLLM
         try:
             msgs = [
                 {"role": "system", "content": "أنت مستشار مالي عربي محترف، دقيق وعملي."},
-                {"role": "user", "content": prompt}
+                {"role": "user", "content": prompt},
             ]
             resp = self.client.chat.completions.create(
                 model=self.model_name,
@@ -392,46 +445,73 @@ class RakeemChatEngine:
             )
             llm_text = (resp.choices[0].message.content or "").strip()
 
-            # ضبط التنسيق بقوة: ضمان سطر مستقل للعناوين
             def _normalize_blocks(txt: str) -> str:
-              tx = txt.replace("\r", "")
+              import re
+              tx = (txt or "").replace("\r", "").strip()
+
+              # --- Normalize both headers ---
+              tx = re.sub(r"\s*الشرح\s*المختصر\s*[:：]?\s*", "<b>الشرح المختصر:</b>\n", tx, flags=re.I)
+              tx = re.sub(r"\s*التوصيات\s*[:：]?\s*", "<b>التوصيات:</b>\n", tx, flags=re.I)
+
+              # --- Extract any recommendations block content ---
+              rec_block_html = ""
+              m = re.search(
+                  r"(?:<b>\s*التوصيات\s*:\s*</b>|التوصيات\s*[:：]|نصائح\s*[:：]|Recommendations\s*:)(.*)$",
+                  tx,
+                  flags=re.S | re.I,
+              )
+              if m:
+                  tail = m.group(1)
+                  bullets = []
+                  for ln in tail.splitlines():
+                      ln = ln.strip()
+                      if not ln:
+                          continue
+                      if re.match(r"^[\-\u2022•]\s+", ln) or re.match(r"^\d+\.\s+", ln) or ln.startswith("<li>"):
+                          ln = re.sub(r"^[\-\u2022•]\s+|\d+\.\s+", "", ln)
+                          ln = re.sub(r"</?li>", "", ln)
+                          bullets.append(ln)
+                  bullets = [b for b in bullets if b][:5]
+                  if bullets:
+                      rec_block_html = "\n\n<b>التوصيات:</b>\n<ul>" + "".join(f"<li>{b}</li>" for b in bullets) + "</ul>"
+
+              # --- Remove all old recommendations sections from text ---
+              tx = re.sub(
+                  r"(?:<b>\s*التوصيات\s*:\s*</b>|التوصيات\s*[:：]|نصائح\s*[:：]|Recommendations\s*:).*",
+                  "",
+                  tx,
+                  flags=re.S | re.I,
+              ).strip()
+
+              # --- Ensure both sections appear cleanly on their own lines ---
+              if "<b>الشرح المختصر:</b>" not in tx:
+                  tx = "<b>الشرح المختصر:</b>\n" + tx
+
+              # Add spacing before each header to separate visually
               tx = tx.replace("<b>الشرح المختصر:</b>", "\n<b>الشرح المختصر:</b>\n")
               tx = tx.replace("<b>التوصيات:</b>", "\n<b>التوصيات:</b>\n")
-              # ✅ إصلاح تكرار التوصيات: حول أي نقاط إلى <ul> واحدة فقط
-              lines = [ln.strip("• ").strip() for ln in tx.splitlines() if ln.strip().startswith("•")]
-              if lines:
-                  bullet_html = "<ul>" + "".join(f"<li>{ln}</li>" for ln in lines) + "</ul>"
-                  # نحذف النص الأصلي للنقاط لتفادي التكرار
-                  tx = re.sub(r"•.*", "", tx)
-                  tx = tx.strip() + "\n" + bullet_html
+
+              if rec_block_html:
+                  tx = tx.strip() + "\n" + rec_block_html
+
               return tx.strip()
 
-            html_parts: List[str] = []
+
+
+
+            html_parts = []
             if is_first and facts:
                 html_parts.append(self._summary_block(company_name, facts))
-
             llm_text = _normalize_blocks(llm_text)
-
-            # لو ما أدرج عنوان "التوصيات" نضمنه
             if "<b>التوصيات:</b>" not in llm_text:
-                llm_text += "\n<b>التوصيات:</b>\n<ul><li>راقب المصروفات التشغيلية.</li><li>حسّن دورة التحصيل.</li><li>تابع اتجاه التدفق النقدي.</li></ul>"
-
+                llm_text += "\n<b>التوصيات:</b>\n<ul><li>تابع الأداء المالي.</li></ul>"
             html_parts.append(llm_text)
-
-            # ذاكرة محادثة خفيفة
-            self.history.append({"role": "user", "content": question})
-            self.history.append({"role": "assistant", "content": llm_text})
-
-            # مصادر
-            all_srcs = list(dict.fromkeys((rag_sources or []) + ["البيانات المالية المرفوعة من المستخدم"]))
+            self.history += [{"role": "user", "content": question}, {"role": "assistant", "content": llm_text}]
+            all_srcs = list(dict.fromkeys((rag_sources or []) + ["البيانات المالية"]))
             return {"html": "\n".join(html_parts), "sources": all_srcs, "is_first": is_first}
 
         except Exception as e:
-            html = []
-            if is_first and facts:
-                html.append(self._summary_block(company_name, facts))
-            html.append("<b>الشرح المختصر:</b>\nتعذر استدعاء النموذج.")
-            html.append(f"<b>التوصيات:</b>\n<ul><li>الخطأ: {e}</li><li>تحقق من الإعدادات.</li></ul>")
+            html = ["<b>الشرح المختصر:</b>\nتعذر استدعاء النموذج.", f"<b>التوصيات:</b>\n<ul><li>الخطأ: {e}</li></ul>"]
             return {"html": "\n".join(html), "sources": rag_sources, "is_first": is_first}
 
 
