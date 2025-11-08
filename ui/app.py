@@ -349,19 +349,24 @@ if user_msg:
     except Exception as e:
         answer, sources = (f"⚠️ حدث خطأ أثناء الإجابة: {e}", [])
 
-    # ضف المصادر (لاحظ أن الشكل الآن list[dict] وليس tuples)
-    if sources:
-        src_lines = []
-        for s in sources:
-            title = s.get("title", "مصدر")
-            url   = s.get("url", "")
-            if url:
-                src_lines.append(f"- [{title}]({url})")
-            else:
-                src_lines.append(f"- {title}")
-        answer += "\n\n**المصادر:**\n" + "\n".join(src_lines)
+    
+    # --- إظهار المصادر فقط عند الطلب ---
+wants_sources = False
+trigger_phrases = ["اذكري المصدر", "اذكر المصدر", "اذكري المصادر", "اذكر المصادر", "المصدر من فضلك", "sources please"]
+low = (user_msg or "").strip().lower()
+wants_sources = any(p in low for p in [t.lower() for t in trigger_phrases])
 
-    add_to_history("assistant", answer)
+if sources and wants_sources:
+    src_lines = []
+    for s in sources:
+        title = s.get("title", "مصدر")
+        url   = s.get("url", "") or s.get("source", "")
+        if url:
+            src_lines.append(f"- [{title}]({url})")
+        else:
+            src_lines.append(f"- {title}")
+    answer += "\n\n**المصادر:**\n" + "\n".join(src_lines)
+
 
 # عرض الرسائل السابقة
 for role, text in st.session_state.chat_history:

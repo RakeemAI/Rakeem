@@ -92,68 +92,55 @@ def _format_docs_for_prompt(docs: List[Any]) -> Tuple[str, List[Dict[str, str]]]
         joined.append(f"[{i}] {title}\n{text}")
         sources.append({"id": i, "title": title, "source": src})
     return "\n\n".join(joined), sources
+# --- أضف هاتين الدالتين بعد _format_docs_for_prompt مباشرةً ---
 
-def _pick_prompt(question: str,
-                 company_info: str,
-                 financial_data: str,
-                 legal_text: str,
-                 rag_text: str,
-                 allowed_values_text: str = "") -> str:
+def _doc_similarity(doc) -> float:
     """
-    يحدد نوع السؤال ويبني البرومبت المناسب من ArabicPromptEngineer
+    يستخرج درجة تشابه موحّدة (0..1) من ميتاداتا المستند إن توفّرت:
+    - similarity / sim / cosine_sim (0..1) → تُستخدم كما هي.
+    - score (0..1) → نستخدمها كما هي إن كانت مطبّعة.
+    - distance (0..1) → نحوّلها إلى تشابه عبر (1 - distance).
+    - إن لم تتوفر أي قيمة صالحة → 0.0
     """
-    qtype = PROMPT.detect_query_type(question)
-    context_block = format_context(
-        company_info=company_info,
-        financial_data=financial_data,
-        legal_text=legal_text,
-        rag_snippets=rag_text,
-    )
+    meta = getattr(doc, "metadata", {}) or {}
 
-    if qtype == "legal":
-        return PROMPT.format_legal_prompt(
-            context=context_block,
-            question=question,
-            allowed_values_text=allowed_values_text,
-        )
-    elif qtype == "financial":
-        return PROMPT.format_financial_prompt(
-            context=context_block,
-            question=question,
-            allowed_values_text=allowed_values_text,
-        )
-    else:
-        return PROMPT.format_main_prompt(
-            company_info=company_info,
-            financial_data=financial_data,
-            zatca_info=legal_text,
-            question=question,
-            allowed_values_text=allowed_values_text,
-        )
+    for key in ("similarity", "sim", "cosine_sim"):
+        if key in meta:
+            try:
+                return float(meta[key])
+            except Exception:
+                pass
 
-def _llm_call(prompt: str,
-              model: Optional[str] = None,
-              temperature: Optional[float] = None,
-              max_tokens: Optional[int] = None) -> str:
-    """
-    استدعاء واحد للـLLM (دردشة) مع برومبت جاهز.
-    """
-    model = model or MODEL_NAME
-    temperature = TEMPERATURE if temperature is None else temperature
-    max_tokens = MAX_TOKENS if max_tokens is None else max_tokens
+    if "score" in meta:
+        try:
+            s = float(meta["score"])
+            if 0.0 <= s <= 1.0:
+                return s
+        except Exception:
+            pass
 
-    resp = _client.chat.completions.create(
-        model=model,
-        temperature=temperature,
-        max_tokens=max_tokens,
-        messages=[
-            {"role": "system", "content": "You are Rakeem, an Arabic financial copilot for Saudi SMEs. Always answer in Arabic unless the user asks for English."},
-            {"role": "user", "content": prompt},
-        ],
-    )
-    return resp.choices[0].message.content or ""
+    if "distance" in meta:
+        try:
+            d = float(meta["distance"])
+            d = max(0.0, min(1.0, d))
+            return 1.0 - d
+        except Exception:
+            pass
 
-# ---------------------------------------------------------------------------------------
+    return 0.0
+
+
+def _filter_by_threshold(docs, min_sim: float = 0.50):
+    """يرجع فقط المستندات ذات التشابه ≥ العتبة المحددة."""
+    good = []
+    for d in docs or []:
+        if _doc_similarity(d) >= min_sim:
+            good.append(d)
+    return good
+
+
+# --- استبدل دالة answer_question بالكامل بهذه النسخة ---
+
 def answer_question(
     question: str,
     *,
@@ -197,9 +184,27 @@ def answer_question(
         # لو فشل RAG نكمل بدون ما نكسر التجربة
         docs = []
 
-    rag_text, sources = _format_docs_for_prompt(docs)
+    # --- 2) فلترة نتائج RAG بعتبة التشابه (50%) ---
+    MIN_SIM = 0.50
+    filtered_docs = _filter_by_threshold(docs, MIN_SIM)
 
-    # --- 2) Build Prompt (Step1 + Step3) ---
+    if filtered_docs:
+        rag_used = True
+        rag_status = "ok"
+    else:
+        rag_used = False
+        rag_status = "no_match"
+        filtered_docs = []
+
+    # نحول المستندات المفلترة إلى نص حقن + مصادر للواجهة
+    rag_text, sources = _format_docs_for_prompt(filtered_docs)
+
+    # (اختياري) توضيح داخلي للسياق إذا لم نجد تطابق من ZATCA — بدون إظهاره للمستخدم مباشرة
+    # يمكنك حذف هذه الأسطر لو ما تبي تضيف الملاحظة للسياق:
+    # if not rag_used and rag_status == "no_match":
+    #     zatca_text = (zatca_text or "") + "\n[تنبيه نظامي] لا توجد إجابة مطابقة من قاعدة ZATCA لهذا السؤال."
+
+    # --- 3) Build Prompt (Step1 + Step3) ---
     prompt = _pick_prompt(
         question=question,
         company_info=company_info,
@@ -209,33 +214,17 @@ def answer_question(
         allowed_values_text="",  # إن كان عندك قيود مسموحة مررها هنا
     )
 
-    # --- 3) LLM Call ---
+    # --- 4) LLM Call ---
     raw = _llm_call(prompt, model=model, temperature=temperature, max_tokens=max_tokens)
 
-    # --- 4) Parse (Step4) ---
+    # --- 5) Parse (Step4) ---
     out = parse_answer(raw, sources=sources)
-    # ضمان وجود الحقول الأساسية
     if "answer" not in out:
         out["answer"] = raw
     if "sources" not in out:
         out["sources"] = sources
-    return out
 
-# ---------------------------------------------------------------------------------------
-# واجهة مساعدة بسيطة لإنشاء Chain جاهز (في حال حبيت تستخدم LangChain بالكامل من step2)
-def build_qa_chain_or_none() -> Any | None:
-    """
-    لو متوفر Milvus + step2، يرجّع Chain قابل للاستدعاء بـ .invoke({"question":..., "context":...})
-    وإلا يرجّع None
-    """
-    if not create_qa_chain or not build_retriever_if_needed:
-        return None
-    if not (MILVUS_URI and MILVUS_COLLECTION):
-        return None
-    retr = build_retriever_if_needed(
-        uri=MILVUS_URI,
-        token=MILVUS_TOKEN,
-        collection=MILVUS_COLLECTION,
-        k=RAG_TOP_K,
-    )
-    return create_qa_chain(retriever=retr, model_name=MODEL_NAME)
+    # إشارات حالة RAG للواجهة/التشخيص
+    out["rag_used"] = rag_used          # True/False
+    out["rag_status"] = rag_status      # "ok" أو "no_match"
+    return out

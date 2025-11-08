@@ -25,15 +25,21 @@ def load_zatca() -> List[Dict]:
     return out
 
 def simple_retrieve(query: str, k: int = 4) -> List[Dict]:
-    qs = set(w.lower() for w in _WORD.findall(query))
+    qs = set(w.lower() for w in _WORD.findall(query) if len(w) > 1)
     scored = []
-    for d in load_zatca():
-        bag = set(w.lower() for w in _WORD.findall(d["text"]))
-        score = len(qs & bag)
-        if score > 0:
-            scored.append((score, d))
+    corpus = load_zatca()
+    for d in corpus:
+        bag = set(w.lower() for w in _WORD.findall(d["text"]) if len(w) > 1)
+        inter = len(qs & bag)
+        union = max(1, len(qs | bag))
+        jaccard = inter / union  # 0..1
+        if jaccard > 0:
+            dd = dict(d)
+            dd["similarity"] = jaccard  # تقرأها run._doc_similarity
+            scored.append((jaccard, dd))
     scored.sort(key=lambda x: x[0], reverse=True)
     return [d for _, d in scored[:k]]
+
 
 def summarize_financial_df(df) -> Dict:
     import pandas as pd
