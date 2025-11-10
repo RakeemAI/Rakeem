@@ -1,0 +1,195 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="UTF-8" />
+  <title>شركة الاختبار - تقرير مالي</title>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+Arabic:wght@300;400;600;700&display=swap');
+    body{font-family:'Noto Sans Arabic',Arial,sans-serif;background:#f8f9fa;color:#333;margin:0;padding:0;line-height:1.6;direction:rtl;text-align:right}
+    header{background:linear-gradient(135deg,#002147 0%,#004a8f 100%);color:#fff;padding:30px;text-align:center}
+    h1{color:#fff;font-size:32px;margin:0 0 10px;font-weight:700}
+    .date-badge{display:inline-block;margin-top:8px;background:#ffcc66;color:#111;padding:5px 12px;border-radius:9999px;font-weight:700;font-size:14px}
+    .container{max-width:1000px;margin:20px auto;padding:20px;background:#fff;box-shadow:0 0 20px rgba(0,0,0,0.1)}
+    h2{color:#002147;font-size:22px;margin:0 0 15px;padding-bottom:8px;border-bottom:2px solid #ffcc66;font-weight:700}
+    .intro-text{font-size:17px;line-height:1.8;text-align:justify;color:#444}
+    .highlight{background:#e8f4fd;padding:20px;border-right:4px solid #002147;border-radius:4px;margin:15px 0}
+
+    /* ✅ البوكسات أصغر – 3 في كل صف */
+    .kpi-wrap{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-top:10px;margin-bottom:20px}
+    .kpi{background:#f8fafc;border:1px solid #e5e7eb;border-radius:10px;padding:8px 10px;text-align:center}
+    .kpi .label{font-size:13px;color:#64748b;margin-bottom:4px}
+    .kpi .value{font-size:16px;font-weight:700}
+
+    table{width:100%;border-collapse:collapse;margin:15px 0;font-size:15px}
+    table,th,td{border:1px solid #ddd}
+    th{background:linear-gradient(135deg,#ffcc66 0%,#ffb347 100%);color:#000;padding:12px;font-weight:700;text-align:center}
+    td{padding:12px;text-align:center;background:#fafafa}
+    tr:nth-child(even) td{background:#f2f2f2}
+
+    ul{list-style-type:none;padding:0;margin:0}
+    li::before{content:"•";color:#002147;font-weight:bold;display:inline-block;width:1em;margin-left:.4em}
+    footer{background:#2c3e50;color:#ecf0f1;text-align:center;padding:15px;font-size:13px;margin-top:20px}
+  </style>
+</head>
+<body>
+<header>
+  <h1>شركة الاختبار</h1>
+  <p style="font-size:18px;margin-top:10px">التقرير المالي الشامل — شركة الاختبار</p>
+  <div class="date-badge">2025-11-09</div>
+</header>
+
+<div class="container">
+  <div class="section">
+    <h2>مقدمة التقرير</h2>
+    <p class="intro-text">يسرّنا تقديم هذا التقرير المالي الشامل الذي يوضح الأداء المالي الحالي للشركة والتنبؤات المستقبلية.</p>
+    <div class="highlight">يهدف هذا التقرير إلى توفير رؤية شاملة عن الأداء المالي ومساعدة متخذي القرار في وضع الخطط المستقبلية.</div>
+  </div>
+
+  <div class="section">
+    <h2>الملخص المالي</h2>
+    <div class="kpi-wrap">
+      <div class="kpi"><div class="label">إجمالي الإيرادات</div><div class="value">965,000 ريال</div></div>
+      <div class="kpi"><div class="label">إجمالي المصروفات</div><div class="value">632,000 ريال</div></div>
+      <div class="kpi"><div class="label">صافي الربح</div><div class="value">333,000 ريال</div></div>
+      <div class="kpi"><div class="label">التدفق النقدي</div><div class="value">333,000 ريال</div></div>
+      <div class="kpi"><div class="label">صافي ضريبة القيمة المضافة</div><div class="value">49,950 ريال</div></div>
+      <div class="kpi"><div class="label">الزكاة المستحقة</div><div class="value">25,000 ريال</div></div>
+    </div>
+  </div>
+
+  <h2 style='color:#002147;font-size:22px;margin:15px 0 10px;padding-bottom:8px;border-bottom:2px solid #ffcc66;font-weight:700;'>الإيرادات</h2><table class="dataframe table">
+  <thead>
+    <tr style="text-align: right;">
+      <th>التاريخ</th>
+      <th>الإيرادات</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>2024-01-31</td>
+      <td>100000</td>
+    </tr>
+    <tr>
+      <td>2024-02-29</td>
+      <td>110000</td>
+    </tr>
+    <tr>
+      <td>2024-03-31</td>
+      <td>95000</td>
+    </tr>
+    <tr>
+      <td>2024-04-30</td>
+      <td>130000</td>
+    </tr>
+    <tr>
+      <td>2024-05-31</td>
+      <td>115000</td>
+    </tr>
+    <tr>
+      <td>2024-06-30</td>
+      <td>125000</td>
+    </tr>
+    <tr>
+      <td>2024-07-31</td>
+      <td>140000</td>
+    </tr>
+    <tr>
+      <td>2024-08-31</td>
+      <td>150000</td>
+    </tr>
+  </tbody>
+</table><h2 style='color:#002147;font-size:22px;margin:15px 0 10px;padding-bottom:8px;border-bottom:2px solid #ffcc66;font-weight:700;'>المصروفات</h2><table class="dataframe table">
+  <thead>
+    <tr style="text-align: right;">
+      <th>التاريخ</th>
+      <th>المصروفات</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>2024-01-31</td>
+      <td>70000</td>
+    </tr>
+    <tr>
+      <td>2024-02-29</td>
+      <td>75000</td>
+    </tr>
+    <tr>
+      <td>2024-03-31</td>
+      <td>72000</td>
+    </tr>
+    <tr>
+      <td>2024-04-30</td>
+      <td>80000</td>
+    </tr>
+    <tr>
+      <td>2024-05-31</td>
+      <td>78000</td>
+    </tr>
+    <tr>
+      <td>2024-06-30</td>
+      <td>82000</td>
+    </tr>
+    <tr>
+      <td>2024-07-31</td>
+      <td>85000</td>
+    </tr>
+    <tr>
+      <td>2024-08-31</td>
+      <td>90000</td>
+    </tr>
+  </tbody>
+</table><h2 style='color:#002147;font-size:22px;margin:15px 0 10px;padding-bottom:8px;border-bottom:2px solid #ffcc66;font-weight:700;'>الأرباح</h2><table class="dataframe table">
+  <thead>
+    <tr style="text-align: right;">
+      <th>التاريخ</th>
+      <th>الربح</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>2024-01-31</td>
+      <td>30000</td>
+    </tr>
+    <tr>
+      <td>2024-02-29</td>
+      <td>35000</td>
+    </tr>
+    <tr>
+      <td>2024-03-31</td>
+      <td>23000</td>
+    </tr>
+    <tr>
+      <td>2024-04-30</td>
+      <td>50000</td>
+    </tr>
+    <tr>
+      <td>2024-05-31</td>
+      <td>37000</td>
+    </tr>
+    <tr>
+      <td>2024-06-30</td>
+      <td>43000</td>
+    </tr>
+    <tr>
+      <td>2024-07-31</td>
+      <td>55000</td>
+    </tr>
+    <tr>
+      <td>2024-08-31</td>
+      <td>60000</td>
+    </tr>
+  </tbody>
+</table>
+
+  <div class="section">
+    <h2>التوصيات والإجراءات المقترحة</h2>
+    <ul><li>استمر في ضبط المصروفات التشغيلية عند مستوياتها الحالية.</li><li>حافظ على مستوى هوامش الربح الحالي مع مراقبة أي تراجع مفاجئ.</li><li>استثمر جزءًا من التدفق النقدي الإيجابي في أنشطة توليد الإيرادات.</li><li>التأكد من مطابقة الإقرارات الضريبية والزكوية للبيانات المالية المعتمدة.</li></ul>
+  </div>
+</div>
+
+<footer>
+  <p>© 2024 نظام التقارير المالية — تم إنشاء هذا التقرير آليًا بتاريخ 2025-11-09</p>
+</footer>
+</body>
+</html>
