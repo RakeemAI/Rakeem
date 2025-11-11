@@ -142,6 +142,13 @@ html, body, [class*="css"] {{
 # ========== Utility ==========
 def sar(x): return f"{float(x):,.0f} ريال" if pd.notna(x) else "—"
 
+
+import zipfile, os
+
+if os.path.exists("rag_store.zip") and not os.path.exists("rag_store"):
+    with zipfile.ZipFile("rag_store.zip", "r") as zip_ref:
+        zip_ref.extractall("rag_store")
+    print("✅ تم فك ضغط ملفات RAG Store.")
 # ========== Header ==========
 st.markdown(f"""
 <div class="header">
