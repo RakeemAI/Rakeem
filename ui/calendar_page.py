@@ -233,10 +233,3 @@ def render_calendar_page(df_raw: Optional[pd.DataFrame], profile: CompanyProfile
             df_show = df_show[["الاسم", "الفئة", "الجهة", "تاريخ_الاستحقاق", "الأيام_المتبقية", "الوصف"]]
             st.dataframe(df_show, use_container_width=True, hide_index=True)
 
-    with right:
-        st.markdown("<div class='sec-title'>تصدير</div>", unsafe_allow_html=True)
-        _ics_export(rows)
-
-        st.markdown("<div class='sec-title' style='margin-top:18px;'>إعدادات الشركة (مراجعة سريعة)</div>", unsafe_allow_html=True)
-        st.json(asdict(profile))
-
