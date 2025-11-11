@@ -5,6 +5,7 @@ import plotly.express as px
 import plotly.graph_objects as go
 import streamlit as st
 
+
 # ========== Imports ==========
 REPO_ROOT = os.path.dirname(os.path.dirname(__file__))
 if REPO_ROOT not in sys.path:
@@ -16,9 +17,13 @@ from engine.validate import validate_columns
 from engine.compute_core import compute_core
 from engine.taxes import compute_vat, compute_zakat
 from generator.report_generator import generate_financial_report
+from ui.calendar_page import render_calendar_page
+
 
 # ========== Streamlit Config ==========
 st.set_page_config(page_title="Rakeem Dashboard", layout="wide")
+if "view" not in st.session_state:
+    st.session_state["view"] = "dashboard"
 
 # ========== Colors ==========
 PRIMARY = "#002147"   # كحلي غامق
@@ -296,49 +301,26 @@ if user_q:
 
     st.session_state.chat_msgs.append({"role": "assistant", "content": html_reply})
     st.rerun()
-# ========== Compliance Calendar (Saudi Deadlines) ==========
-st.sidebar.markdown("---")
-st.sidebar.subheader("📅 التقويم الذكي — التزامات السعودية")
+#============Calendar===========
+# أزرار التنقل بين الصفحات
+if st.sidebar.button("📅 صفحة التقويم"):
+    st.session_state["view"] = "calendar"
+if st.sidebar.button("🏠 الرجوع للوحة المؤشرات"):
+    st.session_state["view"] = "dashboard"
+if st.session_state["view"] == "calendar":
+    from ui.calendar_page import render_calendar_page
+    from engine.reminder_core import CompanyProfile
 
-# إعدادات الشركة (تقدر تربطها مستقبلاً بملف إعدادات أو بواجهة إدخال)
-from engine.reminder_core import CompanyProfile, upcoming_deadlines
+    profile = CompanyProfile(
+        fiscal_year_end_month=int(fye_month),
+        fiscal_year_end_day=int(fye_day),
+        vat_frequency=vat_freq,
+        cr_issue_date=cr_date if cr_date else None,
+    )
 
-col1, col2 = st.sidebar.columns(2)
-with col1:
-    fye_month = st.number_input("شهر نهاية السنة المالية", min_value=1, max_value=12, value=12, step=1)
-with col2:
-    fye_day = st.number_input("يوم نهاية السنة المالية", min_value=1, max_value=31, value=31, step=1)
+    render_calendar_page(df_raw=None, profile=profile, data_path="data/saudi_deadlines_ar.json")
+    st.stop()
 
-vat_freq = st.sidebar.selectbox("تكرار ضريبة القيمة المضافة", ["quarterly", "monthly"], index=0,
-                                format_func=lambda x: "ربع سنوي" if x=="quarterly" else "شهري")
-
-cr_date = st.sidebar.date_input("تاريخ إصدار السجل التجاري (اختياري)", value=None)
-
-days_ahead = st.sidebar.slider("أعرض التنبيهات خلال (أيام):", min_value=7, max_value=60, value=14, step=1)
-
-profile = CompanyProfile(
-    fiscal_year_end_month=int(fye_month),
-    fiscal_year_end_day=int(fye_day),
-    vat_frequency=vat_freq,
-    cr_issue_date=cr_date if cr_date else None
-)
-
-try:
-    reminders = upcoming_deadlines(days_ahead=days_ahead, profile=profile, path="data/saudi_deadlines_ar.json")
-    if reminders:
-        for r in reminders:
-            st.sidebar.markdown(
-                f"**{r['الاسم']}**  \n"
-                f"🗂️ {r['الفئة']} — {r['الجهة']}  \n"
-                f"📆 الاستحقاق: {r['تاريخ_الاستحقاق']}  \n"
-                f"⏳ متبقي: {r['الأيام_المتبقية']} يوم  \n"
-                f"📝 {r['الوصف']}"
-            )
-            st.sidebar.markdown("---")
-    else:
-        st.sidebar.info("لا توجد التزامات مستحقة خلال الفترة المختارة.")
-except Exception as e:
-    st.sidebar.error(f"تعذّر تحميل التقويم: {e}")
 
 # ====== PDF / HTML Report Export ======
 st.sidebar.markdown("---")
