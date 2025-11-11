@@ -17,7 +17,8 @@ from engine.validate import validate_columns
 from engine.compute_core import compute_core
 from engine.taxes import compute_vat, compute_zakat
 from generator.report_generator import generate_financial_report
-from ui.pages.calendar_page import render_calendar_page
+from ui.calendar_page import render_calendar_page
+
 
 
 # ========== Streamlit Config ==========
