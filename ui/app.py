@@ -303,16 +303,27 @@ if user_q:
     st.rerun()
 #============Calendar===========
 # أزرار التنقل بين الصفحات
-if st.sidebar.button("📅 صفحة التقويم"):
-  if st.session_state["view"] == "calendar":
-    # استيراد الضروري
-    from engine.reminder_core import CompanyProfile
-    from ui.calendar_page import render_calendar_page
+# أعلى الملف (مع بقية الاستيرادات)
+from ui.calendar_page import render_calendar_page
+from engine.reminder_core import CompanyProfile
 
-    # إعدادات الشركة الخاصة بالتقويم (من الشريط الجانبي)
+# بعد set_page_config مباشرة
+if "view" not in st.session_state:
+    st.session_state["view"] = "dashboard"
+
+# أزرار الشريط الجانبي
+if st.sidebar.button("📅 صفحة التقويم"):
+    st.session_state["view"] = "calendar"
+if st.sidebar.button("🏠 الرجوع للوحة المؤشرات"):
+    st.session_state["view"] = "dashboard"
+
+# ... (باقي كودك)
+
+# قبل عرض KPIs/المخططات القياسية
+if st.session_state["view"] == "calendar":
     with st.sidebar.expander("⚙️ إعدادات الشركة", expanded=True):
-        fye_month = st.number_input("شهر نهاية السنة المالية", min_value=1, max_value=12, value=12, step=1)
-        fye_day   = st.number_input("يوم نهاية السنة المالية", min_value=1, max_value=31, value=31, step=1)
+        fye_month = st.number_input("شهر نهاية السنة المالية", 1, 12, 12, 1)
+        fye_day   = st.number_input("يوم نهاية السنة المالية", 1, 31, 31, 1)
         vat_freq  = st.selectbox("تكرار ضريبة القيمة المضافة", ["quarterly", "monthly"],index=0, format_func=lambda x: "ربع سنوي" if x=="quarterly" else "شهري")
         cr_date   = st.date_input("تاريخ إصدار السجل التجاري (اختياري)", value=None)
 
@@ -323,7 +334,6 @@ if st.sidebar.button("📅 صفحة التقويم"):
         cr_issue_date=cr_date if cr_date else None,
     )
 
-    # لو ملف المواعيد اسمه مختلف عندك، ثبّت المسار الصحيح هنا
     render_calendar_page(df_raw=None, profile=profile, data_path="data/saudi_deadlines_ar.json")
     st.stop()
 
