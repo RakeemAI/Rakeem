@@ -145,10 +145,22 @@ def sar(x): return f"{float(x):,.0f} ريال" if pd.notna(x) else "—"
 
 import zipfile, os
 
-if os.path.exists("rag_store.zip") and not os.path.exists("rag_store"):
-    with zipfile.ZipFile("rag_store.zip", "r") as zip_ref:
-        zip_ref.extractall("rag_store")
-    print("✅ تم فك ضغط ملفات RAG Store.")
+# نحدّد المسار الجديد داخل مجلد data
+RAG_ZIP_PATH = os.path.join("data", "rag_store.zip")
+RAG_DIR = "rag_store"
+
+if os.path.exists(RAG_ZIP_PATH) and not os.path.exists(RAG_DIR):
+    try:
+        with zipfile.ZipFile(RAG_ZIP_PATH, "r") as zip_ref:
+            zip_ref.extractall(RAG_DIR)
+        print(f"✅ تم فك ضغط ملفات RAG Store من {RAG_ZIP_PATH}")
+    except Exception as e:
+        print(f"❌ فشل فك ضغط rag_store.zip: {e}")
+elif not os.path.exists(RAG_ZIP_PATH):
+    print(f"⚠️ لم يتم العثور على الملف: {RAG_ZIP_PATH}")
+else:
+    print("ℹ️ rag_store موجود مسبقاً، لن يتم فك الضغط.")
+
 # ========== Header ==========
 st.markdown(f"""
 <div class="header">
