@@ -17,7 +17,7 @@ from engine.validate import validate_columns
 from engine.compute_core import compute_core
 from engine.taxes import compute_vat, compute_zakat
 from generator.report_generator import generate_financial_report
-from ui.calendar_page import render_calendar_page
+from ui.pages.calendar_page import render_calendar_page
 
 
 # ========== Streamlit Config ==========
@@ -301,42 +301,6 @@ if user_q:
 
     st.session_state.chat_msgs.append({"role": "assistant", "content": html_reply})
     st.rerun()
-#============Calendar===========
-# أزرار التنقل بين الصفحات
-# أعلى الملف (مع بقية الاستيرادات)
-from ui.calendar_page import render_calendar_page
-from engine.reminder_core import CompanyProfile
-
-# بعد set_page_config مباشرة
-if "view" not in st.session_state:
-    st.session_state["view"] = "dashboard"
-
-# أزرار الشريط الجانبي
-if st.sidebar.button("📅 صفحة التقويم"):
-    st.session_state["view"] = "calendar"
-if st.sidebar.button("🏠 الرجوع للوحة المؤشرات"):
-    st.session_state["view"] = "dashboard"
-
-# ... (باقي كودك)
-
-# قبل عرض KPIs/المخططات القياسية
-if st.session_state["view"] == "calendar":
-    with st.sidebar.expander("⚙️ إعدادات الشركة", expanded=True):
-        fye_month = st.number_input("شهر نهاية السنة المالية", 1, 12, 12, 1)
-        fye_day   = st.number_input("يوم نهاية السنة المالية", 1, 31, 31, 1)
-        vat_freq  = st.selectbox("تكرار ضريبة القيمة المضافة", ["quarterly", "monthly"],index=0, format_func=lambda x: "ربع سنوي" if x=="quarterly" else "شهري")
-        cr_date   = st.date_input("تاريخ إصدار السجل التجاري (اختياري)", value=None)
-
-    profile = CompanyProfile(
-        fiscal_year_end_month=int(fye_month),
-        fiscal_year_end_day=int(fye_day),
-        vat_frequency=vat_freq,
-        cr_issue_date=cr_date if cr_date else None,
-    )
-
-    render_calendar_page(df_raw=None, profile=profile, data_path="data/saudi_deadlines_ar.json")
-    st.stop()
-
 
 # ====== PDF / HTML Report Export ======
 st.sidebar.markdown("---")
