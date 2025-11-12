@@ -126,16 +126,33 @@ def _collect_month_events(year: int, month: int, profile: CompanyProfile, today:
 
 def render_calendar_page(df_raw: Optional[pd.DataFrame], profile: CompanyProfile, data_path: str = "data/saudi_deadlines_ar.json") -> None:
     st.markdown("""
-        <style>
-        .rk-day {height:110px;border:1px solid #e5e7eb;border-radius:12px;background:#fff;padding:8px;transition:all .15s ease;}
-        .rk-day:hover {box-shadow:0 4px 14px rgba(0,0,0,.06); transform: translateY(-1px);}
-        .rk-day--today {border-color:#ffcc66;}
-        .rk-day--has {background:#fef7ec;}
-        .rk-pill {display:inline-block;padding:2px 8px;border-radius:999px;font-size:11px;border:1px solid #e2e8f0;margin-top:4px;}
-        /* تنبيه أحمر للفئات */
-        .rk-pill--alert { border-color:#ef4444; color:#ef4444; background:#fee2e2; }
-        </style>
-        """, unsafe_allow_html=True)
+<style>
+/* ===== Theme ===== */
+:root { --rk-primary:#0f172a; --rk-gold:#ffcc66; --rk-muted:#64748b; }
+.sec-title{ text-align:right; }
+.rk-sec-title{font-weight:900;font-size:18px;margin:8px 0 12px;text-align:right;color:var(--rk-primary)}
+/* Calendar day card */
+.rk-day{height:120px;border:1px solid #e5e7eb;border-radius:16px;background:#ffffffcc;padding:10px;transition:all .15s ease;backdrop-filter:blur(2px)}
+.rk-day:hover{box-shadow:0 8px 24px rgba(0,0,0,.08); transform:translateY(-1px)}
+.rk-day--today{border-color:var(--rk-gold);box-shadow:0 0 0 2px #ffe4a3 inset}
+.rk-day--has{background:#fff7ec}
+/* Chips / Badges */
+.rk-chip{display:inline-flex;align-items:center;gap:6px;padding:3px 10px;border-radius:999px;font-size:12px;border:1px solid #e2e8f0;background:#f8fafc;margin:6px 0 0}
+.rk-chip--alert{border-color:#ef4444;color:#ef4444;background:#fee2e2}
+.rk-chip--org{border-color:#94a3b8;color:#334155;background:#f1f5f9}
+/* List (cards) */
+.rk-list{display:flex;flex-direction:column;gap:10px}
+.rk-item{border:1px solid #e5e7eb;background:#ffffff;border-radius:16px;padding:14px 16px}
+.rk-item:hover{box-shadow:0 8px 24px rgba(0,0,0,.08)}
+.rk-row{display:flex;justify-content:space-between;gap:10px;align-items:center}
+.rk-title{font-weight:800;color:var(--rk-primary);font-size:15px}
+.rk-meta{font-size:12px;color:var(--rk-muted)}
+.rk-due{font-weight:900}
+.rk-remain{color:#ef4444;font-weight:800}
+.rk-filter{position:sticky;top:0;background:linear-gradient(180deg,#0b1224 0,#0b1224 60%,transparent);padding:8px;border-radius:12px;margin-bottom:8px}
+</style>
+""", unsafe_allow_html=True)
+
 
 
 
@@ -220,15 +237,18 @@ def render_calendar_page(df_raw: Optional[pd.DataFrame], profile: CompanyProfile
     # تفاصيل وأسفل الصفحة
     left, right = st.columns([1,2])
     with right:
-        st.markdown("<div class='sec-title' style='text-align:right;'>قائمة المواعيد</div>", unsafe_allow_html=True)
+        st.markdown("<div class='rk-sec-title'>قائمة المواعيد</div>", unsafe_allow_html=True)
         if df_events.empty:
             st.info("لا يوجد مواعيد ضمن النطاق المحدد.")
         else:
+    # فلاتر بشكل ثابت وأنيق
+            st.markdown("<div class='rk-filter'>", unsafe_allow_html=True)
             unique_cats = sorted([x for x in df_events["الفئة"].dropna().unique()])
             unique_orgs = sorted([x for x in df_events["الجهة"].dropna().unique()])
             f1, f2 = st.columns(2)
             sel_cat = f1.multiselect("التصفية حسب الفئة", unique_cats)
             sel_org = f2.multiselect("التصفية حسب الجهة", unique_orgs)
+            st.markdown("</div>", unsafe_allow_html=True)
 
             df_show = df_events.copy()
             if sel_cat:
@@ -236,7 +256,36 @@ def render_calendar_page(df_raw: Optional[pd.DataFrame], profile: CompanyProfile
             if sel_org:
                 df_show = df_show[df_show["الجهة"].isin(sel_org)]
 
-            df_show = df_show[["الاسم","الفئة","الجهة","تاريخ_الاستحقاق","الأيام_المتبقية","الوصف"]]
-            st.dataframe(df_show, use_container_width=True, hide_index=True)
+    # عرض كبطاقات أنيقة
+            st.markdown("<div class='rk-list'>", unsafe_allow_html=True)
+            for _, r in df_show.iterrows():
+                name  = str(r.get("الاسم","")).strip()
+                cat   = str(r.get("الفئة","")).strip()
+                org   = str(r.get("الجهة","")).strip()
+                due   = str(r.get("تاريخ_الاستحقاق","")).strip()
+                days  = int(r.get("الأيام_المتبقية", 0))
+                desc  = str(r.get("الوصف","")).strip()
+
+                remain_txt = "اليوم" if days==0 else ("غدًا" if days==1 else (f"بعد {days} يوم" if days>0 else f"منذ {abs(days)} يوم"))
+                html = f"""
+                <div class='rk-item'>
+                  <div class='rk-row'>
+                    <div class='rk-title'>{name}</div>
+                    <div class='rk-meta'>
+                      <span class='rk-due'>📆 {due}</span> · <span class='rk-remain'>⏳ {remain_txt}</span>
+                    </div>
+                  </div>
+                  <div class='rk-row' style='margin-top:6px;'>
+                <div>
+                  <span class='rk-chip rk-chip--alert'>⚠︎ {cat}</span>
+                  <span class='rk-chip rk-chip--org'>🏛️ {org}</span>
+                </div>
+              </div>
+              <div class='rk-meta' style='margin-top:8px'>{desc}</div>
+            </div>
+        """
+        st.markdown(html, unsafe_allow_html=True)
+    st.markdown("</div>", unsafe_allow_html=True)
+
 
 
