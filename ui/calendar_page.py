@@ -174,61 +174,61 @@ def render_calendar_page(df_raw: Optional[pd.DataFrame], profile: CompanyProfile
                 "".join([f"<div>{w}</div>" for w in weekday_names]) + "</div>", unsafe_allow_html=True)
 
     # رسم الشبكة
-for week in grid:
-    cols = st.columns(7)
-    for i, d in enumerate(week):
-        with cols[i]:
-            if d is None:
-                st.markdown("<div style='height:110px;border:1px dashed #e5e7eb;border-radius:10px;background:#f9fafb;'></div>", unsafe_allow_html=True)
-                continue
-            is_today = (d == today)
-            has_events = d in events_by_day
+    for week in grid:
+        cols = st.columns(7)
+        for i, d in enumerate(week):
+            with cols[i]:
+                if d is None:
+                    st.markdown("<div style='height:110px;border:1px dashed #e5e7eb;border-radius:10px;background:#f9fafb;'></div>", unsafe_allow_html=True)
+                    continue
+                is_today = (d == today)
+                has_events = d in events_by_day
 
             # 👇 هنا الكود الجديد
-            css_classes = ["rk-day"]
-            if is_today:
-                css_classes.append("rk-day--today")
-            if has_events:
-                css_classes.append("rk-day--has")
+                css_classes = ["rk-day"]
+                if is_today:
+                    css_classes.append("rk-day--today")
+                if has_events:
+                    css_classes.append("rk-day--has")
 
-            html = [f"<div class='{' '.join(css_classes)}'>",
+                html = [f"<div class='{' '.join(css_classes)}'>",
                     f"<div style='font-weight:800;color:#002147;'>{d.day}</div>"]
 
-            if has_events:
-                for ev in events_by_day[d][:3]:
-                    remain = _sar_days(int(ev.get("الأيام_المتبقية", 0)))
-                    label = ev.get("الاسم", "")
-                    html.append(f"<div class='rk-pill'>• {label} — <span style='color:#64748b'>{remain}</span></div>")
-                if len(events_by_day[d]) > 3:
-                    more = len(events_by_day[d]) - 3
-                    html.append(f"<div style='font-size:11px;color:#6b7280;margin-top:4px;'>+{more} عناصر أخرى</div>")
+                if has_events:
+                    for ev in events_by_day[d][:3]:
+                        remain = _sar_days(int(ev.get("الأيام_المتبقية", 0)))
+                        label = ev.get("الاسم", "")
+                        html.append(f"<div class='rk-pill'>• {label} — <span style='color:#64748b'>{remain}</span></div>")
+                    if len(events_by_day[d]) > 3:
+                        more = len(events_by_day[d]) - 3
+                        html.append(f"<div style='font-size:11px;color:#6b7280;margin-top:4px;'>+{more} عناصر أخرى</div>")
 
-            html.append("</div>")
-            st.markdown("".join(html), unsafe_allow_html=True)
+                html.append("</div>")
+                st.markdown("".join(html), unsafe_allow_html=True)
 
 
     st.markdown("---")
 
     # تفاصيل وأسفل الصفحة
     left, right = st.columns([1,2])
-with right:
-    st.markdown("<div class='sec-title'>قائمة المواعيد</div>", unsafe_allow_html=True)
-    if df_events.empty:
-        st.info("لا يوجد مواعيد ضمن النطاق المحدد.")
-    else:
-        unique_cats = sorted([x for x in df_events["الفئة"].dropna().unique()])
-        unique_orgs = sorted([x for x in df_events["الجهة"].dropna().unique()])
-        f1, f2 = st.columns(2)
-        sel_cat = f1.multiselect("التصفية حسب الفئة", unique_cats)
-        sel_org = f2.multiselect("التصفية حسب الجهة", unique_orgs)
+    with right:
+        st.markdown("<div class='sec-title'>قائمة المواعيد</div>", unsafe_allow_html=True)
+        if df_events.empty:
+            st.info("لا يوجد مواعيد ضمن النطاق المحدد.")
+        else:
+            unique_cats = sorted([x for x in df_events["الفئة"].dropna().unique()])
+            unique_orgs = sorted([x for x in df_events["الجهة"].dropna().unique()])
+            f1, f2 = st.columns(2)
+            sel_cat = f1.multiselect("التصفية حسب الفئة", unique_cats)
+            sel_org = f2.multiselect("التصفية حسب الجهة", unique_orgs)
 
-        df_show = df_events.copy()
-        if sel_cat:
-            df_show = df_show[df_show["الفئة"].isin(sel_cat)]
-        if sel_org:
-            df_show = df_show[df_show["الجهة"].isin(sel_org)]
+            df_show = df_events.copy()
+            if sel_cat:
+                df_show = df_show[df_show["الفئة"].isin(sel_cat)]
+            if sel_org:
+                df_show = df_show[df_show["الجهة"].isin(sel_org)]
 
-        df_show = df_show[["الاسم","الفئة","الجهة","تاريخ_الاستحقاق","الأيام_المتبقية","الوصف"]]
-        st.dataframe(df_show, use_container_width=True, hide_index=True)
+            df_show = df_show[["الاسم","الفئة","الجهة","تاريخ_الاستحقاق","الأيام_المتبقية","الوصف"]]
+            st.dataframe(df_show, use_container_width=True, hide_index=True)
 
 
