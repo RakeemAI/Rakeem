@@ -125,17 +125,19 @@ def _collect_month_events(year: int, month: int, profile: CompanyProfile, today:
 # =========================
 
 def render_calendar_page(df_raw: Optional[pd.DataFrame], profile: CompanyProfile, data_path: str = "data/saudi_deadlines_ar.json") -> None:
-    """يرسم صفحة التقويم بالكامل داخل Streamlit."""
-    # عنوان
-    st.markdown(
-        """
-        <div class="header" style="background:#002147;color:#fff;border-radius:12px;padding:16px 20px;margin-bottom:16px;">
-        <h1 style="margin:0;font-size:24px;">📅 التقويم الذكي — الالتزامات السعودية</h1>
-        <p style="margin:6px 0 0;color:#ffcc66;font-weight:600;">عرض شهري + عدّاد الأيام المتبقية + تصدير iCal</p>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
+    st.markdown("""
+    <style>
+    /* بطاقات الأيام */
+    .rk-day {height:110px;border:1px solid #e5e7eb;border-radius:12px;background:#fff;padding:8px;transition:all .15s ease;}
+    .rk-day:hover {box-shadow:0 4px 14px rgba(0,0,0,.06); transform: translateY(-1px);}
+    .rk-day--today {border-color:#ffcc66;}
+    .rk-day--has {background:#fef7ec;}
+    .rk-pill {display:inline-block;padding:2px 8px;border-radius:999px;font-size:11px;border:1px solid #e2e8f0;margin-top:4px;}
+    .rk-legend {display:flex;gap:10px;align-items:center;margin:8px 0 12px;}
+    .rk-dot {width:10px;height:10px;border-radius:50%;display:inline-block;margin-left:6px;}
+    </style>
+    """, unsafe_allow_html=True)
+
 
     # فلاتر عليا
     with st.container():
@@ -172,64 +174,61 @@ def render_calendar_page(df_raw: Optional[pd.DataFrame], profile: CompanyProfile
                 "".join([f"<div>{w}</div>" for w in weekday_names]) + "</div>", unsafe_allow_html=True)
 
     # رسم الشبكة
-    for week in grid:
-        cols = st.columns(7)
-        for i, d in enumerate(week):
-            with cols[i]:
-                if d is None:
-                    st.markdown("<div style='height:110px;border:1px dashed #e5e7eb;border-radius:10px;background:#f9fafb;'></div>", unsafe_allow_html=True)
-                    continue
-                is_today = (d == today)
-                has_events = d in events_by_day
+for week in grid:
+    cols = st.columns(7)
+    for i, d in enumerate(week):
+        with cols[i]:
+            if d is None:
+                st.markdown("<div style='height:110px;border:1px dashed #e5e7eb;border-radius:10px;background:#f9fafb;'></div>", unsafe_allow_html=True)
+                continue
+            is_today = (d == today)
+            has_events = d in events_by_day
 
-                box_bg = "#fff"
-                box_border = "#e5e7eb"
-                if is_today:
-                    box_border = "#ffcc66"
-                if has_events:
-                    box_bg = "#fef7ec"  # لمسة ذهبية خفيفة
+            # 👇 هنا الكود الجديد
+            css_classes = ["rk-day"]
+            if is_today:
+                css_classes.append("rk-day--today")
+            if has_events:
+                css_classes.append("rk-day--has")
 
-                # العنوان
-                html = [
-                    f"<div style=\"height:110px;border:1px solid {box_border};border-radius:10px;background:{box_bg};padding:8px;\">",
-                    f"<div style='font-weight:800;color:#002147;'>{d.day}</div>",
-                ]
+            html = [f"<div class='{' '.join(css_classes)}'>",
+                    f"<div style='font-weight:800;color:#002147;'>{d.day}</div>"]
 
-                # العناصر داخل اليوم
-                if has_events:
-                    for ev in events_by_day[d][:3]:  # أول 3 عناصر
-                        remain = _sar_days(int(ev.get("الأيام_المتبقية", 0)))
-                        label = ev.get("الاسم", "")
-                        html.append(f"<div style='font-size:12px;margin-top:4px;'>• {label}<br/><span style='color:#64748b'>{remain}</span></div>")
-                    if len(events_by_day[d]) > 3:
-                        more = len(events_by_day[d]) - 3
-                        html.append(f"<div style='font-size:11px;color:#6b7280;margin-top:4px;'>+{more} عناصر أخرى</div>")
+            if has_events:
+                for ev in events_by_day[d][:3]:
+                    remain = _sar_days(int(ev.get("الأيام_المتبقية", 0)))
+                    label = ev.get("الاسم", "")
+                    html.append(f"<div class='rk-pill'>• {label} — <span style='color:#64748b'>{remain}</span></div>")
+                if len(events_by_day[d]) > 3:
+                    more = len(events_by_day[d]) - 3
+                    html.append(f"<div style='font-size:11px;color:#6b7280;margin-top:4px;'>+{more} عناصر أخرى</div>")
 
-                html.append("</div>")
-                st.markdown("".join(html), unsafe_allow_html=True)
+            html.append("</div>")
+            st.markdown("".join(html), unsafe_allow_html=True)
+
 
     st.markdown("---")
 
     # تفاصيل وأسفل الصفحة
-    left, right = st.columns([2,1])
-    with left:
-        st.markdown("<div class='sec-title'>قائمة المواعيد</div>", unsafe_allow_html=True)
-        if df_events.empty:
-            st.info("لا يوجد مواعيد ضمن النطاق المحدد.")
-        else:
-            # فلاتر بسيطة
-            unique_cats = sorted([x for x in df_events["الفئة"].dropna().unique()])
-            unique_orgs = sorted([x for x in df_events["الجهة"].dropna().unique()])
-            f1, f2 = st.columns(2)
-            sel_cat = f1.multiselect("التصفية حسب الفئة", unique_cats)
-            sel_org = f2.multiselect("التصفية حسب الجهة", unique_orgs)
+    left, right = st.columns([1,2])
+with right:
+    st.markdown("<div class='sec-title'>قائمة المواعيد</div>", unsafe_allow_html=True)
+    if df_events.empty:
+        st.info("لا يوجد مواعيد ضمن النطاق المحدد.")
+    else:
+        unique_cats = sorted([x for x in df_events["الفئة"].dropna().unique()])
+        unique_orgs = sorted([x for x in df_events["الجهة"].dropna().unique()])
+        f1, f2 = st.columns(2)
+        sel_cat = f1.multiselect("التصفية حسب الفئة", unique_cats)
+        sel_org = f2.multiselect("التصفية حسب الجهة", unique_orgs)
 
-            df_show = df_events.copy()
-            if sel_cat:
-                df_show = df_show[df_show["الفئة"].isin(sel_cat)]
-            if sel_org:
-                df_show = df_show[df_show["الجهة"].isin(sel_org)]
+        df_show = df_events.copy()
+        if sel_cat:
+            df_show = df_show[df_show["الفئة"].isin(sel_cat)]
+        if sel_org:
+            df_show = df_show[df_show["الجهة"].isin(sel_org)]
 
-            df_show = df_show[["الاسم", "الفئة", "الجهة", "تاريخ_الاستحقاق", "الأيام_المتبقية", "الوصف"]]
-            st.dataframe(df_show, use_container_width=True, hide_index=True)
+        df_show = df_show[["الاسم","الفئة","الجهة","تاريخ_الاستحقاق","الأيام_المتبقية","الوصف"]]
+        st.dataframe(df_show, use_container_width=True, hide_index=True)
+
 
