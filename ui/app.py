@@ -1,11 +1,6 @@
 # =======================================
 # app.py — Rakeem Intelligent Dashboard (Full Version with Forecast Alerts + Dynamic Report Recs)
 # =======================================
-import os, sys
-REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
-if REPO_ROOT not in sys.path:
-    sys.path.insert(0, REPO_ROOT)
-
 
 import os, sys
 import pandas as pd
@@ -13,6 +8,10 @@ import plotly.express as px
 import plotly.graph_objects as go
 import streamlit as st
 
+# ---------- Repo Path ----------
+REPO_ROOT = "/content/Rakeem"
+if REPO_ROOT not in sys.path:
+    sys.path.insert(0, REPO_ROOT)
 
 # ---------- Imports ----------
 from engine.io import load_excel, load_csv
@@ -22,6 +21,8 @@ from engine.forecasting_core import build_revenue_forecast
 from engine.taxes import compute_vat, compute_zakat
 from generator.report_generator import generate_financial_report
 from llm.run import rakeem_engine
+from ui.calendar_page import render_calendar_page
+from engine.reminder_core import CompanyProfile
 
 # ---------- Theme ----------
 PRIMARY = "#002147"   # كحلي
@@ -374,7 +375,7 @@ def dashboard_page(df, company_name: str):
         elif profit_margin < 0.2:
             alerts.append({
                 "level": "medium",
-                "title": "⚖️ الربح منخفض (<20%)",
+                "title": "⚖ الربح منخفض (<20%)",
                 "reason": "الربحية في آخر 3 أشهر دون المستوى المثالي.",
                 "recommendations": [
                     "حاول تحسين دورة الإيرادات من خلال زيادة حجم المبيعات.",
@@ -398,7 +399,7 @@ def dashboard_page(df, company_name: str):
         if zakat_recent > rev_recent * 0.2:
             alerts.append({
                 "level": "medium",
-                "title": "⚖️ الزكاة مرتفعة (>20% من الإيرادات)",
+                "title": "⚖ الزكاة مرتفعة (>20% من الإيرادات)",
                 "reason": "الزكاة المستحقة نسبةً للإيرادات في آخر 3 أشهر مرتفعة.",
                 "recommendations": [
                     "راجع طريقة احتساب الزكاة بدقة وفق المعايير الشرعية.",
@@ -408,7 +409,7 @@ def dashboard_page(df, company_name: str):
         if vat_recent > rev_recent * 0.2:
             alerts.append({
                 "level": "medium",
-                "title": "⚖️ الضريبة مرتفعة (>20% من الإيرادات)",
+                "title": "⚖ الضريبة مرتفعة (>20% من الإيرادات)",
                 "reason": "معدل الضريبة نسبةً للإيرادات في آخر 3 أشهر مرتفع.",
                 "recommendations": [
                     "تحقق من خصم ضريبة المدخلات بدقة في التقارير.",
@@ -485,7 +486,7 @@ def chat_page(df):
             res = rakeem_engine.answer(user_q, df=df, company_name=company_name)
             reply = res.get("html", "—")
         except Exception as e:
-            reply = f"⚠️ حدث خطأ أثناء التحليل: {e}"
+            reply = f"⚠ حدث خطأ أثناء التحليل: {e}"
         st.session_state.chat_msgs.append({"role":"assistant","content":reply})
         st.rerun()
 
@@ -574,21 +575,23 @@ def calendar_page():
 
     col1, col2, col3 = st.columns(3)
     with col1:
-        month = st.number_input("📆 الشهر", 1, 12, dt.date.today().month)
+        fye_month = st.number_input("📆 شهر نهاية السنة المالية", 1, 12, 12)
     with col2:
-        year = st.number_input("📅 السنة", 2024, 2030, dt.date.today().year)
+        fye_day = st.number_input("📅 يوم نهاية السنة المالية", 1, 31, 31)
     with col3:
-        vat_freq = st.selectbox("💰 تكرار ضريبة القيمة المضافة", ["monthly", "quarterly"],format_func=lambda x: "شهري" if x == "monthly" else "ربع سنوي")
+        vat_freq = st.selectbox("💰 تكرار ضريبة القيمة المضافة", ["monthly", "quarterly"],
+                                format_func=lambda x: "شهري" if x == "monthly" else "ربع سنوي")
 
     profile = CompanyProfile(
-        fiscal_year_end_month=int(month),
-        fiscal_year_end_day=1,
+        fiscal_year_end_month=int(fye_month),
+        fiscal_year_end_day=int(fye_day),
         vat_frequency=vat_freq,
     )
 
     today = dt.date.today()
-    selected_year = int(year)
-    selected_month = int(month)
+    year = today.year
+    month = today.month
+
     # ===== دالة مساعدة لرسم شبكة الشهر =====
     def _month_grid(year, month, week_start=6):
         cal = calendar.Calendar(firstweekday=week_start)
@@ -623,7 +626,7 @@ def calendar_page():
         events_by_day.setdefault(d, []).append(r.to_dict())
 
     grid = _month_grid(year, month)
-    weekday_names = ["الاحد", "الاثنين", "الثلاثاء", "الاربعاء", "الخميس", "الجمعة", "السبت"]
+    weekday_names = ["السبت", "الجمعة", "الخميس", "الأربعاء", "الثلاثاء", "الاثنين", "الأحد"]
 
     # ===== تصميم CSS نظيف (شبكي ومرتب) =====
     st.markdown(f"""
@@ -674,7 +677,7 @@ def calendar_page():
     # ===== شبكة الأيام =====
     for week in grid:
         cols = st.columns(7)
-        col_map = {6: 0, 0: 1, 1: 2, 2: 3, 3: 4, 4: 5, 5: 6}
+        col_map = {5: 0, 4: 1, 3: 2, 2: 3, 1: 4, 0: 5, 6: 6}
         for d in week:
             if d is None:
                 continue
@@ -805,7 +808,7 @@ with st.sidebar:
 # ---------- Load once ----------
 upl = st.session_state.get("uploaded_file")
 if not upl:
-    st.info("⬆️ الرجاء رفع الملف المالي لبدء التحليل.")
+    st.info("⬆ الرجاء رفع الملف المالي لبدء التحليل.")
     st.markdown('<div class="page-spacer"></div>', unsafe_allow_html=True)
     st.markdown('<div class="footer">© 2025 ركيـم — منصة الذكاء المالي المتكاملة</div>', unsafe_allow_html=True)
     st.stop()
