@@ -176,39 +176,40 @@ def render_calendar_page(df_raw: Optional[pd.DataFrame], profile: CompanyProfile
     # رسم الشبكة
     for week in grid:
         cols = st.columns(7)
-        for i, d in enumerate(week):
-            col_idx = 6 - i   # <— نعرض السبت يسار، الأحد يمين
-            with cols[col_idx]:
-                if d is None:
-                    st.markdown(
-                        "<div style='height:110px;border:1px dashed #e5e7eb;border-radius:10px;background:#f9fafb;'></div>",
-                        unsafe_allow_html=True,
-                )
-                    continue
 
+    # خريطة تحويل weekday() → رقم العمود (يسار→يمين)
+    # Monday=0 .. Sunday=6  →  [السبت,الجمعة,الخميس,الأربعاء,الثلاثاء,الاثنين,الأحد]
+        col_map = {5:0, 4:1, 3:2, 2:3, 1:4, 0:5, 6:6}
+
+        for d in week:
+            if d is None:
+                continue
+
+            col_idx = col_map[d.weekday()]   # ← يضمن الأحد دائمًا في أقصى اليمين
+            with cols[col_idx]:
                 is_today = (d == today)
                 has_events = d in events_by_day
 
                 css_classes = ["rk-day"]
-                if is_today: css_classes.append("rk-day--today")
+                if is_today:  css_classes.append("rk-day--today")
                 if has_events: css_classes.append("rk-day--has")
 
-                html = [f"<div class='{' '.join(css_classes)}'>",
-                        f"<div style='font-weight:800;color:#002147;text-align:right;'>{d.day}</div>"]
+                html = [
+                    f"<div class='{' '.join(css_classes)}'>",
+                    f"<div style='font-weight:800;color:#002147;text-align:right;'>{d.day}</div>"
+                ]
 
-            # --- إظهار فئة الموعد باللون الأحمر (إن وجد) ---
+            # إذا فيه مواعيد: اكتب فئة الموعد باللون الأحمر
                 if has_events:
-                # نجمع الفئات المميزة لليوم ونكتب أول 2 فقط
                     cats = []
                     for ev in events_by_day[d]:
                         c = ev.get("الفئة") or ""
                         if c and c not in cats:
                             cats.append(c)
                     for c in cats[:2]:
-                        html.append(f"<div class='rk-pill rk-pill--alert'>⚠︎ {c}</div>")
+                        html.append("<div class='rk-pill rk-pill--alert'>⚠︎ " + c + "</div>")
                     if len(cats) > 2:
                         html.append(f"<div style='font-size:11px;color:#6b7280;margin-top:4px;'>+{len(cats)-2} فئات أخرى</div>")
-            # -----------------------------------------------
 
                 html.append("</div>")
                 st.markdown("".join(html), unsafe_allow_html=True)
