@@ -130,6 +130,8 @@ def render_calendar_page(df_raw: Optional[pd.DataFrame], profile: CompanyProfile
 /* ===== Theme ===== */
 :root { --rk-primary:#0f172a; --rk-gold:#ffcc66; --rk-muted:#64748b; }
 .sec-title{ text-align:right; }
+.rk-filter{direction:rtl;text-align:right;margin:6px 0 10px}
+.rk-filter-label{font-weight:700;margin-bottom:4px}
 .rk-sec-title{font-weight:900;font-size:18px;margin:8px 0 12px;text-align:right;color:var(--rk-primary)}
 /* Calendar day card */
 .rk-day{height:120px;border:1px solid #e5e7eb;border-radius:16px;background:#ffffffcc;padding:10px;transition:all .15s ease;backdrop-filter:blur(2px)}
@@ -241,13 +243,31 @@ def render_calendar_page(df_raw: Optional[pd.DataFrame], profile: CompanyProfile
         if df_events.empty:
             st.info("لا يوجد مواعيد ضمن النطاق المحدد.")
         else:
-    # فلاتر بشكل ثابت وأنيق
-            st.markdown("<div class='rk-filter'>", unsafe_allow_html=True)
+            # ===== فلاتر يمين مع RTL =====
             unique_cats = sorted([x for x in df_events["الفئة"].dropna().unique()])
             unique_orgs = sorted([x for x in df_events["الجهة"].dropna().unique()])
-            f1, f2 = st.columns(2)
-            sel_cat = f1.multiselect("التصفية حسب الفئة", unique_cats)
-            sel_org = f2.multiselect("التصفية حسب الجهة", unique_orgs)
+
+            st.markdown("<div class='rk-filter'>", unsafe_allow_html=True)
+            # نخلّي عمودين يمين، ومساحة فاضية يسار (للدفع إلى اليمين)
+            spacer, col_org, col_cat = st.columns([2.0, 1.2, 1.2])
+            with col_org:
+                st.markdown("<div class='rk-filter-label'>التصفية حسب الجهة</div>", unsafe_allow_html=True)
+                sel_org = st.multiselect(
+                    label="",
+                    options=unique_orgs,
+                    default=[],                 # ← افتراضي: لا شيء
+                    label_visibility="collapsed",
+                    placeholder="اختر الجهة (اختياري)"
+                )
+            with col_cat:
+                st.markdown("<div class='rk-filter-label'>التصفية حسب الفئة</div>", unsafe_allow_html=True)
+                sel_cat = st.multiselect(
+                    label="",
+                    options=unique_cats,
+                    default=[],                 # ← افتراضي: لا شيء
+                    label_visibility="collapsed",
+                    placeholder="اختر الفئة (اختياري)"
+                )
             st.markdown("</div>", unsafe_allow_html=True)
 
             df_show = df_events.copy()
