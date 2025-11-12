@@ -277,7 +277,13 @@ def render_calendar_page(df_raw: Optional[pd.DataFrame], profile: CompanyProfile
                 df_show = df_show[df_show["الجهة"].isin(sel_org)]
 
     # عرض كبطاقات أنيقة
-            st.markdown("<div class='rk-list'>", unsafe_allow_html=True)
+            # ===== عرض كبطاقات فخمة (FIX: اطبع دفعة واحدة) =====
+            cards_html = ["<div class='rk-list'>"]
+
+            df_show = df_events.copy()
+# الترتيب اختياري (من الأقرب للأبعد)
+            df_show = df_show.sort_values(by=["تاريخ_الاستحقاق","الأيام_المتبقية"], ascending=[True, True])
+
             for _, r in df_show.iterrows():
                 name  = str(r.get("الاسم","")).strip()
                 cat   = str(r.get("الفئة","")).strip()
@@ -286,26 +292,32 @@ def render_calendar_page(df_raw: Optional[pd.DataFrame], profile: CompanyProfile
                 days  = int(r.get("الأيام_المتبقية", 0))
                 desc  = str(r.get("الوصف","")).strip()
 
-                remain_txt = "اليوم" if days==0 else ("غدًا" if days==1 else (f"بعد {days} يوم" if days>0 else f"منذ {abs(days)} يوم"))
-                html = f"""
-                <div class='rk-item'>
-                  <div class='rk-row'>
-                    <div class='rk-title'>{name}</div>
-                    <div class='rk-meta'>
-                      <span class='rk-due'>📆 {due}</span> · <span class='rk-remain'>⏳ {remain_txt}</span>
-                    </div>
-                  </div>
-                  <div class='rk-row' style='margin-top:6px;'>
-                <div>
-                  <span class='rk-chip rk-chip--alert'>⚠︎ {cat}</span>
-                  <span class='rk-chip rk-chip--org'>🏛️ {org}</span>
+            remain_txt = (
+                "اليوم" if days == 0 else
+                ("غدًا" if days == 1 else (f"بعد {days} يوم" if days > 0 else f"منذ {abs(days)} يوم"))
+            )
+
+            cards_html.append(f"""
+            <div class='rk-item'>
+            <div class='rk-row'>
+                <div class='rk-title'>{name}</div>
+                <div class='rk-meta'>
+                <span class='rk-due'>📆 {due}</span> · <span class='rk-remain'>⏳ {remain_txt}</span>
                 </div>
-              </div>
-              <div class='rk-meta' style='margin-top:8px'>{desc}</div>
             </div>
-        """
-        st.markdown(html, unsafe_allow_html=True)
-    st.markdown("</div>", unsafe_allow_html=True)
+            <div class='rk-row' style='margin-top:6px;'>
+                <div>
+                <span class='rk-chip rk-chip--alert'>⚠︎ {cat}</span>
+                <span class='rk-chip rk-chip--org'>🏛️ {org}</span>
+                </div>
+            </div>
+            <div class='rk-meta' style='margin-top:8px'>{desc}</div>
+            </div>
+            """)
+
+        cards_html.append("</div>")
+        st.markdown("".join(cards_html), unsafe_allow_html=True)
+
 
 
 
