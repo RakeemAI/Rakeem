@@ -168,8 +168,7 @@ def render_calendar_page(df_raw: Optional[pd.DataFrame], profile: CompanyProfile
         d = dt.date.fromisoformat(r["تاريخ_الاستحقاق"]) if isinstance(r["تاريخ_الاستحقاق"], str) else r["تاريخ_الاستحقاق"]
         events_by_day.setdefault(d, []).append(r.to_dict())
 
-    # رأس أيام الأسبوع (سبت -> جمعة)
-    weekday_names = ["السبت", "الأحد", "الاثنين", "الثلاثاء", "الأربعاء", "الخميس", "الجمعة"]
+    weekday_names = ["السبت", "الجمعة", "الخميس", "الاربعاء", "الثلاثاء", "الاثنين", "الاحد"]
     st.markdown("<div style='display:grid;grid-template-columns:repeat(7,1fr);gap:8px;margin:8px 0;font-weight:800;color:#002147;'>" +
                 "".join([f"<div>{w}</div>" for w in weekday_names]) + "</div>", unsafe_allow_html=True)
 
@@ -221,7 +220,7 @@ def render_calendar_page(df_raw: Optional[pd.DataFrame], profile: CompanyProfile
     # تفاصيل وأسفل الصفحة
     left, right = st.columns([1,2])
     with right:
-        st.markdown("<div class='sec-title'>قائمة المواعيد</div>", unsafe_allow_html=True)
+        st.markdown("<div class='sec-title' style='text-align:right;'>قائمة المواعيد</div>", unsafe_allow_html=True)
         if df_events.empty:
             st.info("لا يوجد مواعيد ضمن النطاق المحدد.")
         else:
