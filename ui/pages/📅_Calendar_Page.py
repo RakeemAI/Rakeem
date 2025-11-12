@@ -15,7 +15,7 @@ from ui.calendar_page import render_calendar_page
 
 st.set_page_config(page_title="Rakeem — التقويم الذكي", layout="wide")
 
-with st.sidebar.expander("⚙️ إعدادات الشركة", expanded=True):
+with st.sidebar.expander("إعدادات الشركة", expanded=True):
     fye_month = st.number_input("شهر نهاية السنة المالية", 1, 12, 12, 1)
     fye_day   = st.number_input("يوم نهاية السنة المالية", 1, 31, 31, 1)
     vat_freq  = st.selectbox("تكرار ضريبة القيمة المضافة", ["quarterly", "monthly"],index=0, format_func=lambda x: "ربع سنوي" if x=="quarterly" else "شهري")

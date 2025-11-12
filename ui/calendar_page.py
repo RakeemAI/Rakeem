@@ -126,17 +126,17 @@ def _collect_month_events(year: int, month: int, profile: CompanyProfile, today:
 
 def render_calendar_page(df_raw: Optional[pd.DataFrame], profile: CompanyProfile, data_path: str = "data/saudi_deadlines_ar.json") -> None:
     st.markdown("""
-    <style>
-    /* بطاقات الأيام */
-    .rk-day {height:110px;border:1px solid #e5e7eb;border-radius:12px;background:#fff;padding:8px;transition:all .15s ease;}
-    .rk-day:hover {box-shadow:0 4px 14px rgba(0,0,0,.06); transform: translateY(-1px);}
-    .rk-day--today {border-color:#ffcc66;}
-    .rk-day--has {background:#fef7ec;}
-    .rk-pill {display:inline-block;padding:2px 8px;border-radius:999px;font-size:11px;border:1px solid #e2e8f0;margin-top:4px;}
-    .rk-legend {display:flex;gap:10px;align-items:center;margin:8px 0 12px;}
-    .rk-dot {width:10px;height:10px;border-radius:50%;display:inline-block;margin-left:6px;}
-    </style>
-    """, unsafe_allow_html=True)
+        <style>
+        .rk-day {height:110px;border:1px solid #e5e7eb;border-radius:12px;background:#fff;padding:8px;transition:all .15s ease;}
+        .rk-day:hover {box-shadow:0 4px 14px rgba(0,0,0,.06); transform: translateY(-1px);}
+        .rk-day--today {border-color:#ffcc66;}
+        .rk-day--has {background:#fef7ec;}
+        .rk-pill {display:inline-block;padding:2px 8px;border-radius:999px;font-size:11px;border:1px solid #e2e8f0;margin-top:4px;}
+        /* تنبيه أحمر للفئات */
+        .rk-pill--alert { border-color:#ef4444; color:#ef4444; background:#fee2e2; }
+        </style>
+        """, unsafe_allow_html=True)
+
 
 
     # فلاتر عليا
@@ -177,34 +177,42 @@ def render_calendar_page(df_raw: Optional[pd.DataFrame], profile: CompanyProfile
     for week in grid:
         cols = st.columns(7)
         for i, d in enumerate(week):
-            with cols[i]:
+            col_idx = 6 - i   # <— نعرض السبت يسار، الأحد يمين
+            with cols[col_idx]:
                 if d is None:
-                    st.markdown("<div style='height:110px;border:1px dashed #e5e7eb;border-radius:10px;background:#f9fafb;'></div>", unsafe_allow_html=True)
+                    st.markdown(
+                        "<div style='height:110px;border:1px dashed #e5e7eb;border-radius:10px;background:#f9fafb;'></div>",
+                        unsafe_allow_html=True,
+                )
                     continue
+
                 is_today = (d == today)
                 has_events = d in events_by_day
 
-            # 👇 هنا الكود الجديد
                 css_classes = ["rk-day"]
-                if is_today:
-                    css_classes.append("rk-day--today")
-                if has_events:
-                    css_classes.append("rk-day--has")
+                if is_today: css_classes.append("rk-day--today")
+                if has_events: css_classes.append("rk-day--has")
 
                 html = [f"<div class='{' '.join(css_classes)}'>",
-                    f"<div style='font-weight:800;color:#002147;'>{d.day}</div>"]
+                        f"<div style='font-weight:800;color:#002147;text-align:right;'>{d.day}</div>"]
 
+            # --- إظهار فئة الموعد باللون الأحمر (إن وجد) ---
                 if has_events:
-                    for ev in events_by_day[d][:3]:
-                        remain = _sar_days(int(ev.get("الأيام_المتبقية", 0)))
-                        label = ev.get("الاسم", "")
-                        html.append(f"<div class='rk-pill'>• {label} — <span style='color:#64748b'>{remain}</span></div>")
-                    if len(events_by_day[d]) > 3:
-                        more = len(events_by_day[d]) - 3
-                        html.append(f"<div style='font-size:11px;color:#6b7280;margin-top:4px;'>+{more} عناصر أخرى</div>")
+                # نجمع الفئات المميزة لليوم ونكتب أول 2 فقط
+                    cats = []
+                    for ev in events_by_day[d]:
+                        c = ev.get("الفئة") or ""
+                        if c and c not in cats:
+                            cats.append(c)
+                    for c in cats[:2]:
+                        html.append(f"<div class='rk-pill rk-pill--alert'>⚠︎ {c}</div>")
+                    if len(cats) > 2:
+                        html.append(f"<div style='font-size:11px;color:#6b7280;margin-top:4px;'>+{len(cats)-2} فئات أخرى</div>")
+            # -----------------------------------------------
 
                 html.append("</div>")
                 st.markdown("".join(html), unsafe_allow_html=True)
+
 
 
     st.markdown("---")
