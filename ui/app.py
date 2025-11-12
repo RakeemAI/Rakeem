@@ -575,22 +575,22 @@ def calendar_page():
 
     col1, col2, col3 = st.columns(3)
     with col1:
-        fye_month = st.number_input("📆 شهر نهاية السنة المالية", 1, 12, 12)
+        month = st.number_input("📆 الشهر", 1, 12, dt.date.today().month)
     with col2:
-        fye_day = st.number_input("📅 يوم نهاية السنة المالية", 1, 31, 31)
+        year = st.number_input("📅 السنة", 2024, 2030, dt.date.today().year)
     with col3:
         vat_freq = st.selectbox("💰 تكرار ضريبة القيمة المضافة", ["monthly", "quarterly"],
                                 format_func=lambda x: "شهري" if x == "monthly" else "ربع سنوي")
 
     profile = CompanyProfile(
-        fiscal_year_end_month=int(fye_month),
-        fiscal_year_end_day=int(fye_day),
+        fiscal_year_end_month=int(month),
+        fiscal_year_end_day=1,
         vat_frequency=vat_freq,
     )
 
     today = dt.date.today()
-    year = today.year
-    month = today.month
+    selected_year = int(year)
+    selected_month = int(month)
 
     # ===== دالة مساعدة لرسم شبكة الشهر =====
     def _month_grid(year, month, week_start=6):
@@ -608,7 +608,7 @@ def calendar_page():
     rows = []
     for it in items:
         due = next_due_date(it, today, profile)
-        if due and due.month == month and due.year == year:
+        if due and due.month == selected_month and due.year == selected_year:
             diff = (due - today).days
             rows.append({
                 "الاسم": it.get("الاسم"),
@@ -625,8 +625,8 @@ def calendar_page():
         d = dt.date.fromisoformat(r["تاريخ_الاستحقاق"])
         events_by_day.setdefault(d, []).append(r.to_dict())
 
-    grid = _month_grid(year, month)
-    weekday_names = ["السبت", "الجمعة", "الخميس", "الأربعاء", "الثلاثاء", "الاثنين", "الأحد"]
+    grid = _month_grid(selected_year, selected_month)
+    weekday_names = ["الاحد", "الاثنين", "الثلاثاء", "الاربعاء", "الخميس", "الجمعة", "السبت"]
 
     # ===== تصميم CSS نظيف (شبكي ومرتب) =====
     st.markdown(f"""
@@ -677,7 +677,7 @@ def calendar_page():
     # ===== شبكة الأيام =====
     for week in grid:
         cols = st.columns(7)
-        col_map = {5: 0, 4: 1, 3: 2, 2: 3, 1: 4, 0: 5, 6: 6}
+        col_map = {6: 0, 0: 1, 1: 2, 2: 3, 3: 4, 4: 5, 5: 6}
         for d in week:
             if d is None:
                 continue
