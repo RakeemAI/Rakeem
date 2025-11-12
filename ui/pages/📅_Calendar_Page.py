@@ -1,9 +1,15 @@
 # ui/pages/📅_Calendar_Page.py
-import os, sys, streamlit as st
-REPO_ROOT = os.path.dirname(os.path.dirname(__file__))  # يرجّع لمسار ui/
-if REPO_ROOT not in sys.path:
-    sys.path.insert(0, REPO_ROOT)
 
+# --- تصحيح المسار (مهم) ---
+import os, sys
+PAGES_DIR = os.path.dirname(__file__)
+UI_DIR = os.path.dirname(PAGES_DIR)
+PROJECT_ROOT = os.path.dirname(UI_DIR)
+if PROJECT_ROOT not in sys.path:
+    sys.path.insert(0, PROJECT_ROOT)
+# ---------------------------
+
+import streamlit as st
 from engine.reminder_core import CompanyProfile
 from ui.calendar_page import render_calendar_page
 
@@ -12,12 +18,7 @@ st.set_page_config(page_title="Rakeem — التقويم الذكي", layout="wi
 with st.sidebar.expander("⚙️ إعدادات الشركة", expanded=True):
     fye_month = st.number_input("شهر نهاية السنة المالية", 1, 12, 12, 1)
     fye_day   = st.number_input("يوم نهاية السنة المالية", 1, 31, 31, 1)
-    vat_freq  = st.selectbox(
-        "تكرار ضريبة القيمة المضافة",
-        ["quarterly", "monthly"],
-        index=0,
-        format_func=lambda x: "ربع سنوي" if x=="quarterly" else "شهري",
-    )
+    vat_freq  = st.selectbox("تكرار ضريبة القيمة المضافة", ["quarterly", "monthly"],index=0, format_func=lambda x: "ربع سنوي" if x=="quarterly" else "شهري")
     cr_date   = st.date_input("تاريخ إصدار السجل التجاري (اختياري)", value=None)
 
 profile = CompanyProfile(
