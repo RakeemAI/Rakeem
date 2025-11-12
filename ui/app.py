@@ -1,6 +1,11 @@
 # =======================================
 # app.py — Rakeem Intelligent Dashboard (Full Version with Forecast Alerts + Dynamic Report Recs)
 # =======================================
+import os, sys
+REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+if REPO_ROOT not in sys.path:
+    sys.path.insert(0, REPO_ROOT)
+
 
 import os, sys
 import pandas as pd
@@ -8,10 +13,6 @@ import plotly.express as px
 import plotly.graph_objects as go
 import streamlit as st
 
-# ---------- Repo Path ----------
-REPO_ROOT = "/content/Rakeem"
-if REPO_ROOT not in sys.path:
-    sys.path.insert(0, REPO_ROOT)
 
 # ---------- Imports ----------
 from engine.io import load_excel, load_csv
@@ -21,8 +22,6 @@ from engine.forecasting_core import build_revenue_forecast
 from engine.taxes import compute_vat, compute_zakat
 from generator.report_generator import generate_financial_report
 from llm.run import rakeem_engine
-from ui.calendar_page import render_calendar_page
-from engine.reminder_core import CompanyProfile
 
 # ---------- Theme ----------
 PRIMARY = "#002147"   # كحلي
