@@ -23,13 +23,25 @@ from generator.report_generator import generate_financial_report
 from llm.run import rakeem_engine
 from ui.calendar_page import render_calendar_page
 from engine.reminder_core import CompanyProfile
+from engine.taxes import compute_vat, compute_zakat
+
 
 # ---------- Theme ----------
 PRIMARY = "#002147"   # كحلي
 GOLD    = "#FFCC66"   # ذهبي
 TEXT    = "#1E293B"
 BG      = "#F9FAFB"
-LOGO_PATH = "/content/Rakeem/rakeem_logo.png"
+LOGO_PATH = "rakeem_logo.png"
+import base64
+
+def get_base64_image(image_path):
+    with open(image_path, "rb") as f:
+        data = f.read()
+    return base64.b64encode(data).decode()
+
+# Encode the image
+logo_base64 = get_base64_image("rakeem_logo.png")
+
 
 # ---------- Streamlit Config ----------
 st.set_page_config(page_title="ركيم — لوحة مالية ذكية", layout="wide")
@@ -83,7 +95,7 @@ div[data-testid="stAppViewContainer"] > .main .block-container {{
 section[data-testid="stSidebar"] > div {{
   background: {PRIMARY};
   height: 100vh;
-  padding-top: calc(var(--banner-h) + 20px);
+  padding-top: calc(var(--banner-h) - 50px);
 }}
 
 .sidebar-title {{
@@ -288,27 +300,16 @@ def format_sar(x):
 
 # ---------- Pages ----------
 def dashboard_page(df, company_name: str):
-    # ---------- Internal VAT & Zakat Calculations ----------
-    def calculate_vat(df: pd.DataFrame) -> float:
-        vat_rate = 0.15
-        vat_sales = df["revenue"].sum() * vat_rate
-        vat_purchases = df["expenses"].sum() * vat_rate * 0.5  # assume 50% deductible
-        net_vat = vat_sales - vat_purchases
-        return max(net_vat, 0)
 
-    def calculate_zakat(df: pd.DataFrame) -> float:
-        zakat_rate = 0.025
-        base = max(df["revenue"].sum() - df["expenses"].sum(), 0)
-        zakat = base * zakat_rate
-        return zakat
 
     # ---------- Core Financial Totals ----------
     rev = df["revenue"].sum()
     exp = df["expenses"].sum()
     prof = df["profit"].sum()
     cash = df["cash_flow"].sum()
-    vat = calculate_vat(df)
-    zakat = calculate_zakat(df)
+    vat = compute_vat(df)
+    zakat = compute_zakat(df)
+
 
     # ---------- KPI Section ----------
     st.markdown('<div class="section"><div class="sec-title">المؤشرات الرئيسية</div>', unsafe_allow_html=True)
@@ -355,13 +356,18 @@ def dashboard_page(df, company_name: str):
         rev_recent = recent_df["revenue"].sum()
         profit_recent = recent_df["profit"].sum()
         cashflow_recent = recent_df["cash_flow"].sum()
-        vat_recent = calculate_vat(recent_df)
-        zakat_recent = calculate_zakat(recent_df)
-        profit_margin = profit_recent / max(rev_recent, 1)
+        vat_recent = compute_vat(recent_df)
+        zakat_recent = compute_zakat(recent_df)
+
+
 
         alerts = []
 
         # Profitability Alerts
+        profit_recent = recent_df["profit"].sum()
+        rev_recent = recent_df["revenue"].sum()
+        profit_margin = (profit_recent / rev_recent) if rev_recent > 0 else 0
+
         if profit_margin < 0.1:
             alerts.append({
                 "level": "high",
@@ -462,14 +468,14 @@ def chat_page(df):
     # حالة المحادثة
     if "chat_msgs" not in st.session_state:
         st.session_state.chat_msgs = [
-            {"role":"assistant","content":f"مرحبًا! أنا ريكم 🤖 — مساعدك المالي لشركة {company_name}. اسألني عن الأرباح، المصروفات، الزكاة أو الأداء العام."}
+            {"role":"assistant","content":f"مرحبًا! أنا ركيم 🤖 — مساعدك المالي لشركة {company_name}. اسألني عن الأرباح، المصروفات، الزكاة أو الأداء العام."}
         ]
 
     # عرض الرسائل
     st.markdown('<div class="chat-wrap">', unsafe_allow_html=True)
     for msg in st.session_state.chat_msgs:
         cls = "assistant" if msg["role"] == "assistant" else "user"
-        who = "ريكم 🤖" if cls == "assistant" else "👤 المستخدم"
+        who = "ركيم 🤖" if cls == "assistant" else "👤 المستخدم"
         st.markdown(f"""
         <div class="chat-bubble {cls}">
             <div class="role-label">{who}</div>
@@ -729,12 +735,17 @@ if "page" not in st.session_state:
 
 with st.sidebar:
     st.markdown(f"""
-    <div style="text-align:center;margin-bottom:20px;">
-        <img src="{LOGO_PATH}" style="width:65px;height:65px;border-radius:10px;margin-bottom:5px;"/>
-        <div style="font-weight:800;color:white;">ركيــم</div>
-        <div style="color:{GOLD};font-size:13px;">لوحة تحكم مالية ذكية</div>
-    </div>
-    """, unsafe_allow_html=True)
+      <div class="top-banner" style="justify-content:flex-start;">
+        <img src="data:image/png;base64,{logo_base64}" style="width:70px;height:70px;border-radius:8px;object-fit:cover;"/>
+        <div style="margin-right:220px; text-align:right;">
+          <div style="font-size:28px;font-weight:900;">ركيم - Rakeem Dashboard</div>
+          <div style="color:{GOLD};font-weight:700;font-size:15px;">
+            لوحة تحكم مالية ذكية للشركات الصغيرة والمتوسطة
+          </div>
+        </div>
+      </div>
+      """, unsafe_allow_html=True)
+
 
     st.sidebar.markdown(
         f"<h3 style='color:{GOLD}; font-weight:800; text-align:right;'>📂 رفع الملف المالي</h3>",
