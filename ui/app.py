@@ -24,6 +24,8 @@ from llm.run import rakeem_engine
 from ui.calendar_page import render_calendar_page
 from engine.reminder_core import CompanyProfile
 from engine.taxes import compute_vat, compute_zakat
+from openai import OpenAI
+client = OpenAI()
 
 
 # ---------- Theme ----------
@@ -268,7 +270,7 @@ section[data-testid="stSidebar"] > div {{
 st.markdown(f"""
 <div class="top-banner" style="justify-content:flex-start;">
   <img src="{LOGO_PATH}" style="width:70px;height:70px;border-radius:8px;object-fit:cover;"/>
-  <div style="margin-right:220px; text-align:right;"> <!-- fine-tuned offset -->
+  <div style="margin-right:0px; text-align:right;"> <!-- fine-tuned offset -->
     <div style="font-size:28px;font-weight:900;">ركيم - Rakeem Dashboard</div>
     <div style="color:{GOLD};font-weight:700;font-size:15px;">
       لوحة تحكم مالية ذكية للشركات الصغيرة والمتوسطة
@@ -297,6 +299,45 @@ def format_sar(x):
         return f"{float(x):,.0f} ريال"
     except Exception:
         return "—"
+
+
+def rakeem_llm_alert(title, reason, recommendations):
+    prompt = f"""
+أنت نظام مالي احترافي اسمه "ركيم".
+أعد صياغة التنبيه بطريقة مترابطة ومهنية، في فقرة واضحة واحدة تشرح:
+
+1) ما الذي كشفه تحليل ركيم (Observation)
+2) ما أثره على الأداء المالي (Impact)
+3) ما الذي يستنتجه تقييم ركيم (Assessment)
+4) ثم قائمة توصيات تنفيذية واضحة (Action Steps)
+
+المتطلبات:
+- النص يجب أن يكون مترابطًا وسلسًا بدون تكرار العنوان.
+- فقرة تحليلية واحدة فقط، قصيرة، واضحة.
+- ثم قائمة توصيات مرتّبة.
+- أسلوب رسمي، احترافي، مباشر، بصوت "ركيم".
+- بدون مبالغة، بدون حشو، بدون كلام إنشائي.
+
+عنوان التنبيه:
+{title}
+
+سبب التنبيه:
+{reason}
+
+التوصيات:
+{recommendations}
+
+أعد الصياغة الآن.
+"""
+
+    res = client.chat.completions.create(
+        model="gpt-4o-mini",
+        messages=[{"role":"user","content":prompt}],
+        temperature=0.1
+    )
+
+    return res.choices[0].message.content
+
 
 # ---------- Pages ----------
 def dashboard_page(df, company_name: str):
@@ -342,8 +383,11 @@ def dashboard_page(df, company_name: str):
     st.markdown("</div>", unsafe_allow_html=True)
 
     # ---------- Forecast & Smart Alerts ----------
+# ---------- Forecast & Smart Alerts ----------
     st.markdown('<div class="section"><div class="sec-title">التنبؤ المالي والتنبيهات</div>', unsafe_allow_html=True)
+
     try:
+        # ===== بناء التنبؤ =====
         fc = build_revenue_forecast(df, periods=6)
         fig = go.Figure()
         fig.add_trace(go.Scatter(x=df["date"], y=df["revenue"], name="الإيرادات الفعلية", line=dict(color=PRIMARY)))
@@ -351,7 +395,7 @@ def dashboard_page(df, company_name: str):
         fig.update_layout(template="plotly_white", height=400)
         st.plotly_chart(fig, use_container_width=True)
 
-        # --- Analyze Last 3 Months for Alerts ---
+        # ===== تحليل آخر 3 أشهر =====
         recent_df = df.tail(3)
         rev_recent = recent_df["revenue"].sum()
         profit_recent = recent_df["profit"].sum()
@@ -359,101 +403,95 @@ def dashboard_page(df, company_name: str):
         vat_recent = compute_vat(recent_df)
         zakat_recent = compute_zakat(recent_df)
 
-
-
         alerts = []
 
-        # Profitability Alerts
-        profit_recent = recent_df["profit"].sum()
-        rev_recent = recent_df["revenue"].sum()
+        # ===== تنبيه: الربحية =====
         profit_margin = (profit_recent / rev_recent) if rev_recent > 0 else 0
 
         if profit_margin < 0.1:
-            alerts.append({
-                "level": "high",
-                "title": "🔻 الربح ضعيف جدًا (<10%)",
-                "reason": "نسبة الأرباح إلى الإيرادات في آخر 3 أشهر منخفضة للغاية.",
-                "recommendations": [
-                    "راجع استراتيجية التسعير لتحسين هوامش الربح.",
-                    "قلّل المصروفات التشغيلية أو أعد توزيع الموارد لتحقيق كفاءة أعلى."
-                ]
-            })
+            title = "انخفاض حاد في هامش الربح (<10%)"
+            reason = "التحليل يبين تراجعًا ملحوظًا في الربحية خلال آخر ثلاثة أشهر."
+            recs = [
+                "إعادة تقييم الأسعار وتحسين هوامش الربح.",
+                "تقليص المصروفات التشغيلية ذات التأثير المحدود."
+            ]
+            llm_text = rakeem_llm_alert(title, reason, recs)
+            alerts.append({"level": "high", "title": title, "llm": llm_text})
+
         elif profit_margin < 0.2:
-            alerts.append({
-                "level": "medium",
-                "title": "⚖ الربح منخفض (<20%)",
-                "reason": "الربحية في آخر 3 أشهر دون المستوى المثالي.",
-                "recommendations": [
-                    "حاول تحسين دورة الإيرادات من خلال زيادة حجم المبيعات.",
-                    "قم بتحليل المصروفات الثابتة والمتغيرة لتقليل الأعباء غير الضرورية."
-                ]
-            })
+            title = "ضعف مستوى الربحية (<20%)"
+            reason = "الربحية الحالية أقل من المستوى المتوقع للاستقرار المالي."
+            recs = [
+                "رفع كفاءة دورة الإيرادات عبر تعزيز المبيعات.",
+                "مراجعة المصروفات التشغيلية وتحسين كفاءتها."
+            ]
+            llm_text = rakeem_llm_alert(title, reason, recs)
+            alerts.append({"level": "medium", "title": title, "llm": llm_text})
 
-        # Cashflow Alert
+        # ===== تنبيه: التدفق النقدي =====
         if cashflow_recent < 0:
-            alerts.append({
-                "level": "high",
-                "title": "🔻 التدفق النقدي سلبي",
-                "reason": "النفقات النقدية تتجاوز التدفقات الداخلة مؤخرًا، ما يضغط على السيولة.",
-                "recommendations": [
-                    "عزّز التحصيل بتقصير آجال السداد من العملاء.",
-                    "أعد جدولة الالتزامات قصيرة الأجل لتخفيف الضغط المالي."
-                ]
-            })
+            title = "تدفق نقدي سلبي"
+            reason = "المتحصلات النقدية أقل من المصروفات خلال الفترة الأخيرة."
+            recs = [
+                "تعزيز التحصيل وتقليل آجال السداد.",
+                "إدارة الالتزامات قصيرة الأجل بشكل أكثر مرونة."
+            ]
+            llm_text = rakeem_llm_alert(title, reason, recs)
+            alerts.append({"level": "high", "title": title, "llm": llm_text})
 
-        # Zakat & VAT Alerts
+        # ===== تنبيه: الزكاة =====
         if zakat_recent > rev_recent * 0.2:
-            alerts.append({
-                "level": "medium",
-                "title": "⚖ الزكاة مرتفعة (>20% من الإيرادات)",
-                "reason": "الزكاة المستحقة نسبةً للإيرادات في آخر 3 أشهر مرتفعة.",
-                "recommendations": [
-                    "راجع طريقة احتساب الزكاة بدقة وفق المعايير الشرعية.",
-                    "استثمر الأصول المعطلة لتقليل المبالغ الواجبة الزكاة."
-                ]
-            })
-        if vat_recent > rev_recent * 0.2:
-            alerts.append({
-                "level": "medium",
-                "title": "⚖ الضريبة مرتفعة (>20% من الإيرادات)",
-                "reason": "معدل الضريبة نسبةً للإيرادات في آخر 3 أشهر مرتفع.",
-                "recommendations": [
-                    "تحقق من خصم ضريبة المدخلات بدقة في التقارير.",
-                    "تأكد من تحديث الإقرارات الضريبية وفق آخر التشريعات."
-                ]
-            })
+            title = "ارتفاع نسبة الزكاة (>20%)"
+            reason = "الزكاة المستحقة مرتفعة مقارنة بحجم الإيرادات."
+            recs = [
+                "مراجعة آلية احتساب الزكاة.",
+                "تقييم الأصول غير المستغلة لتقليل البنود الخاضعة."
+            ]
+            llm_text = rakeem_llm_alert(title, reason, recs)
+            alerts.append({"level": "medium", "title": title, "llm": llm_text})
 
-        # --- Display Alerts ---
+        # ===== تنبيه: ضريبة القيمة المضافة =====
+        if vat_recent > rev_recent * 0.2:
+            title = "ارتفاع ضريبة القيمة المضافة (>20%)"
+            reason = "القيمة المسجلة للضريبة مرتفعة مقارنة بالإيرادات."
+            recs = [
+                "التحقق من دقة خصم ضريبة المدخلات.",
+                "مطابقة الإقرارات الضريبية مع حركة المبيعات."
+            ]
+            llm_text = rakeem_llm_alert(title, reason, recs)
+            alerts.append({"level": "medium", "title": title, "llm": llm_text})
+
+        # ===== عرض التنبيهات =====
         if alerts:
             for alert in alerts:
                 color = "#f87171" if alert["level"] == "high" else "#facc15"
-                recs_html = "<ul style='margin:6px 0; padding-right:20px;'>"
-                for r in alert["recommendations"]:
-                    recs_html += f"<li>{r}</li>"
-                recs_html += "</ul>"
+
                 st.markdown(f"""
-                <div style="border-right:5px solid {color}; padding:14px; margin-bottom:10px;
-                            background:#f3f4f6; border-radius:8px;">
-                    <b>{alert['title']}</b><br>
-                    <span style="color:#374151;">السبب:</span> {alert['reason']}<br>
-                    <span style="color:#374151;">التوصيات:</span> {recs_html}
+                <div style="border-right:5px solid {color}; padding:20px; margin-bottom:12px;
+                            background:#f8fafc; border-radius:10px;">
+                    <div style="font-size:17px; font-weight:900; color:#1e293b; margin-bottom:8px;">
+                        {alert['title']}
+                    </div>
+                    <div style="font-size:14px; white-space:pre-line; line-height:1.9; color:#334155;">
+                        {alert['llm']}
+                    </div>
                 </div>
                 """, unsafe_allow_html=True)
+
         else:
             st.markdown("""
-            <div style="border-right:5px solid #4ade80; padding:14px; margin-bottom:10px;
-                        background:#ecfdf5; border-radius:8px;">
-                <b>✅ الوضع المالي مستقر</b><br>
-                لا توجد مؤشرات خطر حالية. الأداء متوازن والإيرادات تغطي المصروفات.
-                <ul style='margin:6px 0; padding-right:20px;'>
-                    <li>استمر في مراقبة الربحية والتدفق النقدي شهريًا للحفاظ على الاستقرار.</li>
-                    <li>استثمر جزءًا من الفائض في مشاريع منخفضة المخاطر لدعم النمو.</li>
-                </ul>
+            <div style="border-right:5px solid #4ade80; padding:20px; margin-bottom:12px;
+                        background:#ecfdf5; border-radius:10px;">
+                <b style="color:#065f46; font-size:17px;">الوضع المالي مستقر</b><br><br>
+                يشير تحليل ركيم إلى استقرار المؤشرات المالية وعدم وجود مخاطر مؤثرة خلال الفترة الحالية.
+                يوصى بالاستمرار في مراقبة الربحية والسيولة بشكل دوري.
             </div>
             """, unsafe_allow_html=True)
 
     except Exception as e:
         st.warning(f"تعذر عرض التنبؤ: {e}")
+
+
 
     # ---------- Footer Spacer ----------
     st.markdown('<div class="page-spacer"></div>', unsafe_allow_html=True)
@@ -737,7 +775,7 @@ with st.sidebar:
     st.markdown(f"""
       <div class="top-banner" style="justify-content:flex-start;">
         <img src="data:image/png;base64,{logo_base64}" style="width:70px;height:70px;border-radius:8px;object-fit:cover;"/>
-        <div style="margin-right:220px; text-align:right;">
+        <div style="margin-right:0px; text-align:right;">
           <div style="font-size:28px;font-weight:900;">ركيم - Rakeem Dashboard</div>
           <div style="color:{GOLD};font-weight:700;font-size:15px;">
             لوحة تحكم مالية ذكية للشركات الصغيرة والمتوسطة
