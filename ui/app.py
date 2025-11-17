@@ -9,9 +9,16 @@ import plotly.graph_objects as go
 import streamlit as st
 
 # ---------- Repo Path ----------
-REPO_ROOT = "/content/Rakeem"
+if "google.colab" in sys.modules:
+    # running inside Google Colab
+    REPO_ROOT = "/content/Rakeem"
+else:
+    # running locally (VS Code, etc.)
+    REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
 if REPO_ROOT not in sys.path:
     sys.path.insert(0, REPO_ROOT)
+
 
 # ---------- Imports ----------
 from engine.io import load_excel, load_csv
