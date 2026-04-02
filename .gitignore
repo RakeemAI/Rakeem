@@ -1,5 +1,22 @@
-.env
-*.pyc
+# Python virtual environments
+.venv/
+venv/
+env/
+
+# Python cache
 __pycache__/
-data/rag_store/
-*.bin
+*.py[cod]
+
+# Logs
+*.log
+
+# Compressed files
+*.zip
+*.rar
+
+# Environment variables (Secrets!)
+.env
+
+# OS generated files
+.DS_Store
+Thumbs.db
